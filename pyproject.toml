@@ -1,0 +1,14 @@
+[project]
+name = "tinker-cpp"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "datasets>=5.2.0",
+    "huggingface-hub>=2.4.0",
+    "modal>=1.6.4",
+    "python-dotenv>=1.2.4",
+    "tinker>=0.39.0",
+    "tinker-cookbook>=0.6.1",
+    "transformers>=5.23.0",
+]
