@@ -25,7 +25,7 @@ def main(a):
         rows = rows[: a.max_examples]
     data, skipped, ntok = [], 0, 0
     for row in rows:
-        d = conversation_to_datum(sysm + row["messages"], r, None, renderers.TrainOnWhat.ALL_ASSISTANT_MESSAGES)
+        d = conversation_to_datum(sysm + policy.hydrate(row["messages"]), r, None, renderers.TrainOnWhat.ALL_ASSISTANT_MESSAGES)
         if d.model_input.length > a.max_length:  # drop, never truncate: a cut trajectory teaches a bad ending
             skipped += 1
             continue

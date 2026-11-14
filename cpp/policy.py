@@ -39,3 +39,15 @@ def make_sampling_client(model_path: str | None = None, base_model: str = BASE_M
     if model_path:
         return sc.create_sampling_client(model_path=model_path)
     return sc.create_sampling_client(base_model=base_model)
+
+
+def hydrate(messages: list[dict]) -> list[dict]:
+    """JSONL trajectories store tool calls as dicts; the renderer wants ToolCall objects."""
+    out = []
+    for m in messages:
+        if m.get("tool_calls"):
+            m = {**m, "tool_calls": [renderers.ToolCall(function=renderers.ToolCall.FunctionBody(
+                name=t["function"]["name"], arguments=t["function"]["arguments"])) if isinstance(t, dict) else t
+                for t in m["tool_calls"]]}
+        out.append(m)
+    return out

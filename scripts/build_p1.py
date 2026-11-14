@@ -15,6 +15,7 @@ CODE_RE = re.compile(r"```(?:cpp|c\+\+|C\+\+)?\s*\n(.*?)```", re.DOTALL)
 # Fixed connective lines between tool calls. Deliberately minimal: all reasoning is the teacher's.
 SUBMIT_NOTE = "The output matches the expected sample output. Submitting."
 RETRY_NOTE = "That attempt is wrong. Let me rethink the problem from scratch."
+DONE_NOTE = "All sample tests passed. The solution is submitted, so I am done."
 
 
 def band(rating):
@@ -91,14 +92,16 @@ def build(job):
     r, tm = run_turn(p, good["code"], s["input"])
     if not sample_ok(r, s):
         return {"id": p["id"], "ok": False}
-    first_text = RETRY_NOTE if kind == "retry" else ""
-    msgs += [asst(good["thinking"], first_text, call(tools.RUN_TOOL, code=good["code"], stdin=s["input"])), tm]
+    # Every assistant turn carries non-empty thinking: Qwen3.5 samples after a "<think>\n" prefill, and
+    # an empty think block in history tokenizes differently from what the model would have to sample.
+    first_think = (RETRY_NOTE + "\n\n" if kind == "retry" else "") + good["thinking"]
+    msgs += [asst(first_think, "", call(tools.RUN_TOOL, code=good["code"], stdin=s["input"])), tm]
     sj = judge.judge(good["code"], p["samples"], p["time_limit"], p["memory_limit"], False)
     if sj["passed"] != sj["total"]:
         return {"id": p["id"], "ok": False}
-    msgs += [asst("", SUBMIT_NOTE, call(tools.SUBMIT_TOOL, code=good["code"])),
+    msgs += [asst(SUBMIT_NOTE, "", call(tools.SUBMIT_TOOL, code=good["code"])),
              {"role": "tool", "name": tools.SUBMIT_TOOL, "content": tools.format_submit_result(sj, 1)},
-             {"role": "assistant", "content": "EXIT"}]
+             asst(DONE_NOTE, "EXIT")]
     return {"id": p["id"], "ok": True, "kind": kind, "rating": p["rating"], "band": band(p["rating"]),
             "source": "open-r1/codeforces-cots (DeepSeek-R1)", "n_tests": len(p["tests"]),
             "tests_complete": p["tests_complete"], "max_time": j["max_time"], "messages": msgs}
@@ -122,7 +125,7 @@ def main(a):
     order = {"hard": 0, "medium": 1, "easy": 2}
     random.shuffle(probs)
     probs.sort(key=lambda p: order[band(p["rating"])])
-    quota = {"hard": int(a.target * 0.6), "medium": int(a.target * 0.3), "easy": int(a.target * 0.1)}
+    quota = {"hard": a.hard, "medium": a.medium, "easy": a.easy}
     cand = {"hard": [], "medium": [], "easy": []}
     for p in probs:
         cand[band(p["rating"])].append(p)
@@ -159,7 +162,9 @@ def main(a):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--target", type=int, default=1500)
+    ap.add_argument("--hard", type=int, default=900)
+    ap.add_argument("--medium", type=int, default=700)
+    ap.add_argument("--easy", type=int, default=150)
     ap.add_argument("--max-tokens", type=int, default=8000)
     ap.add_argument("--min-tests", type=int, default=3)
     ap.add_argument("--tries", type=int, default=2)
