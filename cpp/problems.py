@@ -31,13 +31,15 @@ def to_problem(r: dict) -> dict | None:
     }
 
 
-def load_split(split: str) -> list[dict]:
+def load_split(split: str, keep_ids: set | None = None) -> list[dict]:
     """split: 'train' or 'test'. Downloads the parquet shards on first use."""
     snapshot_download(REPO, repo_type="dataset", local_dir=LOCAL, allow_patterns=[f"data/{split}-*.parquet"])
     out = []
     for f in sorted(glob.glob(f"{LOCAL}/data/{split}-*.parquet")):
-        for batch in pq.ParquetFile(f).iter_batches(batch_size=64):
+        for batch in pq.ParquetFile(f).iter_batches(batch_size=16):
             for r in batch.to_pylist():
+                if keep_ids is not None and r["id"] not in keep_ids:
+                    continue
                 p = to_problem(r)
                 if p:
                     out.append(p)

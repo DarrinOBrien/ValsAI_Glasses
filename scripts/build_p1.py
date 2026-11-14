@@ -107,13 +107,16 @@ def build(job):
 def main(a):
     random.seed(0)
     hold = {json.loads(l)["id"] for l in open("data/holdout.jsonl")}
+    from huggingface_hub import snapshot_download
+    snapshot_download("open-r1/codeforces-cots", repo_type="dataset", local_dir=os.path.dirname(COTS),
+                      allow_patterns=["solutions_decontaminated/*.parquet"])
     traces = load_traces(a.max_tokens)
     by_id = {}
     for t in traces:
         by_id.setdefault(t["id"], []).append(t)
     print(f"{len(traces)} parsed traces under {a.max_tokens} tokens, {len(by_id)} problems", flush=True)
-    probs = [p for p in problems.load_split("train")
-             if p["id"] in by_id and p["id"] not in hold and p["rating"]
+    probs = [p for p in problems.load_split("train", set(by_id) - hold)
+             if p["id"] not in hold and p["rating"]
              and len(p["tests"]) >= a.min_tests and sum(len(t["input"]) for t in p["tests"]) < 20_000_000]
     # hard first: verified hard traces are the scarce resource
     order = {"hard": 0, "medium": 1, "easy": 2}
