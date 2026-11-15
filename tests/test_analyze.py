@@ -53,3 +53,13 @@ def test_cli(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "## Comparison" in out and "| x |" in out and "1600-2199" in out and "weakest" in out
     assert json.load(open(tmp_path / "o.json"))["runs"]["x"]["pass_rate"] > 0.6
+
+
+def test_sample_py_row_format():
+    row = {"problem_id": "a", "turns": 3, "output_tokens": 10, "malformed": 0, "ended_by": "exit",
+           "submissions": [{"compiled": True}], "score": {"solved": True}}
+    assert A.solved(row) and A.failure_category(row) is None
+    row["score"] = {"solved": False}
+    assert A.failure_category(row) == "wrong_answer"
+    from scripts import grpo
+    assert grpo.pass_counts([{"problem_id": "a", "score": {"solved": True}}]) == {"a": (1, 1)}

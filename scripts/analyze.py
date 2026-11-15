@@ -47,7 +47,12 @@ def rating_map(problems: list[dict] | None) -> dict[str, int]:
 
 # ------------------------------------------------------------------ per-episode
 def solved(t: dict) -> bool:
-    return bool((t.get("final") or {}).get("solved"))
+    """Harness Trajectory dicts use final.solved; scripts/sample.py rows use score.solved."""
+    return bool((t.get("final") or {}).get("solved") or (t.get("score") or {}).get("solved"))
+
+
+def _compiled_code(t: dict) -> bool:
+    return bool(t.get("final_code")) or any(s.get("compiled") for s in t.get("submissions") or [])
 
 
 def failure_category(t: dict) -> str | None:
@@ -57,7 +62,7 @@ def failure_category(t: dict) -> str | None:
     if t.get("ended_by") == "error":
         return "infra_error"
     final = t.get("final") or {}
-    if not t.get("final_code"):
+    if not _compiled_code(t):
         if t.get("truncated", 0) > 0:
             return "truncation"
         if t.get("malformed", 0) > 0 or t.get("ended_by") == "malformed":
@@ -169,7 +174,7 @@ def analyze_run(trajs: list[dict], ratings: dict[str, int] | None = None, fine: 
         "truncation_rate_per_turn": sum(t.get("truncated", 0) for t in trajs) / turns_total,
         "episodes_with_truncation": sum(t.get("truncated", 0) > 0 for t in trajs) / n,
         "exit_rate": sum(bool(t.get("ended_with_exit")) for t in trajs) / n,
-        "no_submission_rate": sum(not t.get("final_code") for t in trajs) / n,
+        "no_submission_rate": sum(not _compiled_code(t) for t in trajs) / n,
         "regressed_rate": sum(bool(t.get("regressed")) for t in trajs) / n,
         "ended_by": dict(Counter(t.get("ended_by") or "?" for t in trajs)),
         "avg_submissions": st.mean(len(t.get("submissions") or []) for t in trajs),

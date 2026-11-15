@@ -38,7 +38,7 @@ def pass_counts(trajs: list[dict]) -> dict[str, tuple[int, int]]:
     """problem_id -> (solved, attempts) over trajectory dicts (scripts.eval / sampling JSONL)."""
     d: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     for t in trajs:
-        d[t["problem_id"]][0] += bool((t.get("final") or {}).get("solved"))
+        d[t["problem_id"]][0] += bool((t.get("final") or {}).get("solved") or (t.get("score") or {}).get("solved"))
         d[t["problem_id"]][1] += 1
     return {k: (v[0], v[1]) for k, v in d.items()}
 
