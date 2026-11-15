@@ -197,6 +197,7 @@ def to_record(r):
         "time_limit": float(r["time_limit"] or 2.0), "memory_limit": float(r["memory_limit"] or 256.0),
         "sample_tests": [{"input": nl(e["input"]), "output": nl(e["output"])} for e in r["examples"]],
         "full_tests": {"path": path, "n": len(r["_tests"]), "n_official": r["_n_off"], "n_generated": r["_n_gen"]},
+        "checker_lang": "python" if r.get("generated_checker") else None,
         "checker": r.get("generated_checker"),  # python checker.py input correct_output contestant_output -> score; None = exact match (token/whitespace tolerant)
         "year": r.get("contest_start_year"), "contest_id": r["contest_id"],
     }

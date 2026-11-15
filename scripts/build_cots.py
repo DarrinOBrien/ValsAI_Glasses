@@ -7,7 +7,7 @@ Writes cpp-data:/pool/r1_hard.jsonl (<=200, one shortest trace per problem, pool
 r1_hard_all.jsonl (every eligible 2200+ trace). Records:
     {id, rating, tokens, thinking, code, in_pool}
 Traces are NOT verified here. Verify the code against pool tests in the sandbox before use, and rewrite into harness
-format (see scripts/build_p1.py for the older conversion). Problems in eval150 (or aliases) are excluded.
+format. Problems in eval150 (or aliases) are excluded.
 """
 import glob, json, os, re, sys
 import modal
