@@ -2,7 +2,7 @@
 categories, turn/token distributions, and a checkpoint comparison table.
 
     uv run python -m scripts.analyze runs/eval/baseline.jsonl runs/eval/round1.jsonl \
-        --problems data/holdout.jsonl [--fine] [--json out.json] [--no-detail]
+        --problems data/pool/eval150.jsonl [--fine] [--json out.json] [--no-detail]
     # run args are PATH or NAME=PATH; the first run is the baseline for paired comparisons.
 
 Input is the JSONL written by scripts.eval (one Trajectory.to_dict() per line; several lines per

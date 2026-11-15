@@ -1,6 +1,6 @@
 """Local eval: run a model (any OpenAI-compatible endpoint, e.g. vLLM) through the harness copy.
 
-uv run --with openai python -m scripts.eval --name baseline --problems data/holdout.jsonl \
+uv run --with openai python -m scripts.eval --name baseline --problems data/pool/eval150.jsonl \
     --base-url http://localhost:8000/v1 --model Qwen/Qwen3.5-9B --n 150 --judge modal
 
 Problems: JSONL in the harness schema {id, statement, rating, time_limit, memory_limit, sample_tests,
