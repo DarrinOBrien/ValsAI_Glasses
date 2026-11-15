@@ -9,11 +9,11 @@ app = modal.App("tinker-cpp")
 vol = modal.Volume.from_name("cpp-data", create_if_missing=True)
 image = (
     modal.Image.from_registry("gcc:14", add_python="3.12")
-    .pip_install("pyarrow", "huggingface_hub", "hf_transfer")
+    .pip_install("pyarrow", "huggingface_hub", "hf_transfer", "pytest")
     .run_commands("mkdir -p /opt/testlib && curl -sL https://raw.githubusercontent.com/MikeMirzayanov/testlib/master/testlib.h -o /opt/testlib/testlib.h")
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1", "CXX": "g++", "TESTLIB_DIR": "/opt/testlib"})
     .workdir("/root")
-    .add_local_python_source("cpp", "scripts")
+    .add_local_python_source("cpp", "scripts", "tests")
 )
 
 
@@ -44,3 +44,16 @@ def judge_remote(code: str, tests: list, time_limit: float, mem_limit: float, ch
     Call: modal.Function.from_name("tinker-cpp", "judge_remote").remote(...) or harness.modal_judge()."""
     from cpp import judge
     return judge.judge(code, tests, time_limit, mem_limit, checker)
+
+
+@app.function(image=image, cpu=2, memory=4096, timeout=1200)
+def sandbox_tests() -> str:
+    """Run the judge tests on Linux (memory/stack limits only enforced there): uv run modal run modal_app.py::selftest"""
+    import subprocess
+    p = subprocess.run(["python", "-m", "pytest", "tests/test_judge.py", "-q", "-rs"], capture_output=True, text=True)
+    return p.stdout + p.stderr
+
+
+@app.local_entrypoint()
+def selftest():
+    print(sandbox_tests.remote())
