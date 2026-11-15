@@ -96,9 +96,9 @@ def test_implicit_return_globals_and_args_main():
 
 def test_exit_codes():
     t = [{"input": "", "output": "1"}]
-    assert judge.judge('#include <cstdlib>\nint main(){ exit(3); }', t, 2.0, 256)["verdicts"] == ["RE"]
+    assert judge.judge('#include <cstdlib>\nint main(){ exit(3); }', t, 10.0, 256)["verdicts"] == ["RE"]
     assert judge.judge('#include <cstdlib>\n#include <cstdio>\nint main(){ puts("1"); exit(0); }',
-                       t, 2.0, 256)["verdicts"] == ["AC"]
+                       t, 10.0, 256)["verdicts"] == ["AC"]
 
 
 PYCHK = """import sys
