@@ -1,7 +1,7 @@
 """Optional hard-problem R1 set: candidate DeepSeek-R1 traces (open-r1/codeforces-cots, solutions_decontaminated)
 for problems rated 2200+ with a C++ solution. Runs on Modal after `build_pool.py::main --step pool`.
 
-    uv run --env-file .env modal run scripts/build_cots.py
+    uv run --env-file .env modal run scripts/build_cots.py::cots
 
 Writes cpp-data:/pool/r1_hard.jsonl (<=200, one shortest trace per problem, pool problems first) and
 r1_hard_all.jsonl (every eligible 2200+ trace). Records:
@@ -67,5 +67,5 @@ def build_cots():
 
 
 @app.local_entrypoint()
-def main():
+def cots():
     build_cots.remote()
