@@ -77,6 +77,18 @@ Survivors (30k set): rating mix 2200-2399: 27, 2400-2599: 25, 2600-2799: 8, 2800
 at a 14k cap 39 remain (mean 10.9k), at 16k 48. Pass rate falls with rating (27/93, 25/101, 8/67, 7/103) and with trace length
 (34% of judged for the 200 shortest-per-problem set vs 18% overall). R1 traces are mostly wrong on these problems, which is why verification is mandatory.
 Output files (gitignored): `data/pools/r1_hard_14k.jsonl` (39), `r1_hard_30k.jsonl` (67), plus `r1_*_full.jsonl` with the failures.
+Note the caps above count R1 trace tokens only. The rendered SFT sequence (system prompt + tool specs + statement + thinking + code in the run and
+submit calls, exactly as `train_sft` renders it) is ~2.8k tokens longer (mean 16.1k, max 23.0k for the 67 rows):
+
+| Total rendered tokens | Rows (of 67) | Rating mix | Mean rating |
+| --- | --- | --- | --- |
+| <= 14k | 21 | 13 / 8 / 0 / 0 | 2310 |
+| <= 16k (`r1_hard_16k.jsonl`) | **34** | 17 / 13 / 3 / 1 | 2368 |
+| <= 20k | 55 | 24 / 20 / 6 / 5 | 2418 |
+| <= 32k | 67 | 27 / 25 / 8 / 7 | 2437 |
+
+(mix = 2200-2399 / 2400-2599 / 2600-2799 / 2800+). `train_sft`'s default `--max-length` is 32000, so all 67 fit by default; use `r1_hard_16k.jsonl`
+only if training at 16k. Longer traces are also less often correct, so the 16k subset is skewed toward easier (2200-2599) problems.
 
 ## Known gaps
 
