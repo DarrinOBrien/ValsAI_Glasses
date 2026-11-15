@@ -42,7 +42,7 @@ def task_prompt(p: dict) -> str:
     parts = [f"# {p.get('title') or 'Problem'}", "",
              f"Time limit: {p['time_limit']:g} s. Memory limit: {p['memory_limit']:g} MB.", "",
              p["statement"].strip(), "", "## Sample tests", ""]
-    for i, s in enumerate(p["samples"], 1):
+    for i, s in enumerate(p["sample_tests"], 1):
         parts += [f"samples/{i}.in:", "```", s["input"].strip(), "```",
                   f"samples/{i}.out:", "```", s["output"].strip(), "```", ""]
     return "\n".join(parts).strip()

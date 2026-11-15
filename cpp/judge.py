@@ -61,19 +61,76 @@ def outputs_match(got: str, want: str) -> bool:
     return got.split() == want.split()
 
 
+TESTLIB_URL = "https://raw.githubusercontent.com/MikeMirzayanov/testlib/master/testlib.h"
+
+
+def testlib_dir() -> str | None:
+    """Directory holding testlib.h (env TESTLIB_DIR, baked into the Modal image, or fetched once)."""
+    for d in (os.environ.get("TESTLIB_DIR"), "/opt/testlib", os.path.join(os.path.dirname(__file__), "..", "data", "testlib")):
+        if d and os.path.exists(os.path.join(d, "testlib.h")):
+            return d
+    d = os.path.join(os.path.dirname(__file__), "..", "data", "testlib")
+    try:
+        import urllib.request
+        os.makedirs(d, exist_ok=True)
+        urllib.request.urlretrieve(TESTLIB_URL, os.path.join(d, "testlib.h"))
+        return d
+    except Exception:
+        return None
+
+
+def compile_checker(src: str, workdir: str) -> tuple[bool, str, str]:
+    path, exe = os.path.join(workdir, "chk.cpp"), os.path.join(workdir, "chk.out")
+    with open(path, "w") as f:
+        f.write(src)
+    inc = testlib_dir()
+    cmd = [CXX, *FLAGS, *(["-I", inc] if inc else []), path, "-o", exe]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return False, "checker compile timeout", exe
+    return p.returncode == 0, p.stderr[-2000:], exe
+
+
+def run_checker(chk_exe: str, workdir: str, inp: str, got: str, want: str) -> bool:
+    """testlib convention: checker <input> <contestant output> <jury answer>; exit 0 means accepted."""
+    paths = []
+    for name, data in (("in", inp), ("out", got), ("ans", want)):
+        p = os.path.join(workdir, f"t.{name}")
+        with open(p, "w") as f:
+            f.write(data)
+        paths.append(p)
+    try:
+        r = subprocess.run([chk_exe, *paths], capture_output=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        return False
+    return r.returncode == 0
+
+
 def judge(code: str, tests: list[dict], tl: float = 2.0, ml_mb: float = 1024,
-          stop_on_fail: bool = True) -> dict:
-    """tests: [{'input':..., 'output':...}]. Returns compile status and per-test verdicts."""
+          checker: str | None = None, stop_on_fail: bool = True) -> dict:
+    """tests: [{'input':..., 'output':...}]; checker: None (token diff) or testlib C++ source.
+    Returns {compiled, compile_error, passed, total, verdicts[AC|WA|TLE|RE], max_time}."""
     d = tempfile.mkdtemp(prefix="judge_")
     try:
         ok, err, exe = compile_cpp(code, d)
         if not ok:
             return {"compiled": False, "compile_error": err, "passed": 0, "total": len(tests),
                     "verdicts": [], "max_time": 0.0}
+        chk_exe = None
+        if checker:
+            cok, cerr, chk_exe = compile_checker(checker, d)
+            if not cok:
+                raise RuntimeError(f"checker failed to compile: {cerr}")
         verdicts, max_t = [], 0.0
         for t in tests:
             r = run_exe(exe, t["input"], tl, ml_mb)
-            v = r["status"] if r["status"] != "OK" else ("AC" if outputs_match(r["stdout"], t["output"]) else "WA")
+            if r["status"] != "OK":
+                v = r["status"]
+            elif chk_exe:
+                v = "AC" if run_checker(chk_exe, d, t["input"], r["stdout"], t["output"]) else "WA"
+            else:
+                v = "AC" if outputs_match(r["stdout"], t["output"]) else "WA"
             verdicts.append(v)
             max_t = max(max_t, r["time"])
             if v != "AC" and stop_on_fail:
