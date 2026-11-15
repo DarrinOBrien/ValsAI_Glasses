@@ -145,3 +145,9 @@ def test_run_code():
     r = judge.run_code(SUM, "2 3\n", 2.0, 256)
     assert r["compiled"] and r["status"] == "OK" and r["stdout"].strip() == "5"
     assert judge.run_code("garbage", "", 2.0, 256)["compiled"] is False
+
+
+def test_run_exe_exec_failure_is_re(tmp_path):
+    from cpp import judge
+    r = judge.run_exe(str(tmp_path / "does_not_exist"), "")
+    assert r["status"] == "RE"

@@ -78,6 +78,8 @@ def run_exe(exe: str, stdin: str, tl: float = 2.0, ml_mb: float = 1024) -> dict:
     except subprocess.TimeoutExpired as e:
         return {"status": "TLE", "stdout": (e.stdout or b"")[:MAX_OUT].decode(errors="replace"),
                 "stderr": "", "time": time.time() - t0, "code": None}
+    except (OSError, subprocess.SubprocessError) as e:  # e.g. "Cannot allocate memory" at exec under RLIMIT_AS
+        return {"status": "RE", "stdout": "", "stderr": f"exec failed: {e!r}"[:2000], "time": time.time() - t0, "code": None}
     dt = time.time() - t0
     status = "OK" if p.returncode == 0 else ("TLE" if dt > tl else "RE")
     if dt > tl:
