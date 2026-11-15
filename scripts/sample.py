@@ -79,7 +79,7 @@ async def _stub_episode(problem, client, **kw):
 
 @app.function(image=image, secrets=[key], cpu=2, memory=4096, timeout=3 * 3600, max_containers=200)
 async def run_attempt(problem: dict, attempt: int, url: str, model: str = "qwen", stub: bool = False,
-                      temperature: float = 0.8, max_tokens: int = 16384, max_turns: int = 30) -> dict:
+                      temperature: float = 0.8, max_tokens: int = 16384, max_turns: int = 40) -> dict:
     from openai import AsyncOpenAI
     client = AsyncOpenAI(base_url=url.rstrip("/") + "/v1", api_key=os.environ["VLLM_KEY"], timeout=1800,
                          max_retries=4)
@@ -89,7 +89,8 @@ async def run_attempt(problem: dict, attempt: int, url: str, model: str = "qwen"
         else:
             from cpp import harness
             t = await harness.run_episode(problem, client, model=model, temperature=temperature,
-                                          max_tokens=max_tokens, max_turns=max_turns)
+                                          max_tokens=max_tokens, max_turns=max_turns,
+                                          judge_fn=harness.modal_judge())  # full tests live on cpp-data, mounted in the judge
         return normalize(t, problem, attempt, model)
     except Exception as e:
         return {"problem_id": problem.get("id"), "attempt": attempt, "error": repr(e)[:300]}

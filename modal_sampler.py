@@ -19,7 +19,7 @@ HF_MODEL = "Qwen/Qwen3.5-9B"
 VOL_MODEL = "/vol/qwen3.5-9b"
 MODEL = os.environ.get("MERGED_MODEL") or VOL_MODEL
 N_REPLICAS = int(os.environ.get("N_REPLICAS", "3"))
-MAX_LEN = int(os.environ.get("MAX_LEN", "40960"))
+MAX_LEN = int(os.environ.get("MAX_LEN", "65536"))
 ADAPTERS = os.environ.get("ADAPTERS", "")  # "name=/vol/adapters/x,..."
 vol = modal.Volume.from_name("qwen-weights", create_if_missing=True)
 key = modal.Secret.from_dict({"VLLM_KEY": os.environ.get("VLLM_KEY") or hashlib.sha256(

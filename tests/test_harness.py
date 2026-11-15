@@ -110,13 +110,13 @@ def test_tool_call_markup_in_text_is_malformed():
 
 def test_context_window_ends_episode_cleanly():
     # the second prompt is already near the 40,960 window: the episode must end with 'context', not call the server again
-    tr, c = run([msg("", [call("run_cpp", {"code": SUM, "stdin": "3 4\n"})], prompt_toks=39500),
+    tr, c = run([msg("", [call("run_cpp", {"code": SUM, "stdin": "3 4\n"})], prompt_toks=64500),
                  msg("EXIT")], max_turns=10)
     assert tr.ended_by == "context" and len(c.seen) == 1
     assert c.seen[0]["max_tokens"] <= 16000
 
 
 def test_gen_budget_shrinks_near_window():
-    tr, c = run([msg("", [call("run_cpp", {"code": SUM, "stdin": "3 4\n"})], prompt_toks=30000),
+    tr, c = run([msg("", [call("run_cpp", {"code": SUM, "stdin": "3 4\n"})], prompt_toks=55000),
                  msg("EXIT")], max_turns=10)
     assert len(c.seen) == 2 and c.seen[1]["max_tokens"] < 16000 and c.seen[1]["max_tokens"] >= 2048

@@ -59,8 +59,8 @@ class HarnessConfig:
     max_turns: int = 100           # used when run_episode(max_turns=None)
     max_submissions: int = T.MAX_SUBMISSIONS
     max_malformed: int = 3         # consecutive malformed assistant messages that end the episode
-    max_context_tokens: int = 60000  # stop if prompt_tokens exceeds this
-    context_window: int = 40960      # server max context (MAX_LEN of modal_sampler); keep in sync. 0 = unlimited
+    max_context_tokens: int = 100000  # stop if prompt_tokens exceeds this
+    context_window: int = 65536      # server max context (MAX_LEN of modal_sampler); keep in sync. 0 = unlimited
     context_margin: int = 2000       # tokens assumed added to the prompt by the next turn (visible reply + tool result)
     min_gen_tokens: int = 2048       # end the episode ('context') if less than this can still be generated
     no_action_is_malformed: bool = True  # assistant message with no tool call and no EXIT
