@@ -25,16 +25,20 @@ def main(a):
         rows = rows[: a.max_examples]
     data, skipped, ntok = [], 0, 0
     for row in rows:
-        d = conversation_to_datum(sysm + policy.hydrate(row["messages"]), r, None, renderers.TrainOnWhat.ALL_ASSISTANT_MESSAGES)
-        if d.model_input.length > a.max_length:  # drop, never truncate: a cut trajectory teaches a bad ending
+        # One datum per assistant turn, trained on that turn only. Qwen3.5 strips earlier thinking from
+        # history, so this is the only way each target sees the same prefix it will see when sampling.
+        msgs = sysm + policy.hydrate(row["messages"])
+        ds = [conversation_to_datum(msgs[: i + 1], r, None, renderers.TrainOnWhat.LAST_ASSISTANT_MESSAGE)
+              for i, m in enumerate(msgs) if m["role"] == "assistant"]
+        if max(d.model_input.length for d in ds) > a.max_length:  # drop, never truncate
             skipped += 1
             continue
-        data.append(d)
-        ntok += d.model_input.length
+        data += ds
+        ntok += sum(d.model_input.length for d in ds)
     steps_per_epoch = len(data) // a.batch_size
     total = steps_per_epoch * a.epochs
     cost = ntok * a.epochs * 1.463 / 1e6
-    print(f"{len(data)} examples ({skipped} over {a.max_length} tokens dropped), {ntok/1e6:.2f}M tokens/epoch, "
+    print(f"{len(data)} turn examples ({skipped} trajectories over {a.max_length} tokens dropped), {ntok/1e6:.2f}M tokens/epoch, "
           f"{total} steps, est. cost ${cost:.2f}", flush=True)
     if a.dry_run:
         return
@@ -80,7 +84,7 @@ if __name__ == "__main__":
     ap.add_argument("--init", default=None)
     ap.add_argument("--max-examples", type=int, default=0)
     ap.add_argument("--epochs", type=int, default=2)
-    ap.add_argument("--batch-size", type=int, default=8)
+    ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--rank", type=int, default=32)
     ap.add_argument("--max-length", type=int, default=16000)
