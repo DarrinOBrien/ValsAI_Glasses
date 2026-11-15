@@ -60,6 +60,9 @@ class HarnessConfig:
     max_submissions: int = T.MAX_SUBMISSIONS
     max_malformed: int = 3         # consecutive malformed assistant messages that end the episode
     max_context_tokens: int = 60000  # stop if prompt_tokens exceeds this
+    context_window: int = 40960      # server max context (MAX_LEN of modal_sampler); keep in sync. 0 = unlimited
+    context_margin: int = 2000       # tokens assumed added to the prompt by the next turn (visible reply + tool result)
+    min_gen_tokens: int = 2048       # end the episode ('context') if less than this can still be generated
     no_action_is_malformed: bool = True  # assistant message with no tool call and no EXIT
     send_reasoning_back: bool = False    # include reasoning_content in history sent to the model
     task_prompt: Callable[[dict], str] = T.task_prompt
@@ -169,17 +172,32 @@ async def run_episode(problem: dict, client, max_turns: int | None = None, max_t
     best_sample_pass = False
     tr.ended_by = "max_turns"
 
+    last_prompt = 0
     while tr.turns < max_turns:
-        kw = dict(model=model, messages=_history(msgs, cfg), tools=cfg.tools, max_tokens=max_tokens,
+        gen = max_tokens
+        if cfg.context_window:
+            room = cfg.context_window - last_prompt - (cfg.context_margin if last_prompt else 0) - 64
+            if room < cfg.min_gen_tokens:
+                tr.ended_by = "context"
+                break
+            gen = min(max_tokens, room)
+        kw = dict(model=model, messages=_history(msgs, cfg), tools=cfg.tools, max_tokens=gen,
                   temperature=temperature)
         if top_p is not None:
             kw["top_p"] = top_p
         if cfg.extra_body:
             kw["extra_body"] = cfg.extra_body
-        resp = await client.chat.completions.create(**kw)
+        try:
+            resp = await client.chat.completions.create(**kw)
+        except Exception as e:  # prompt exceeded the server context: end cleanly instead of crashing the episode
+            if getattr(e, "status_code", None) == 400 and "context" in str(e).lower():
+                tr.ended_by = "context"
+                break
+            raise
         choice = resp.choices[0]
         tr.turns += 1
         usage = getattr(resp, "usage", None)
+        last_prompt = (getattr(usage, "prompt_tokens", 0) or 0) if usage is not None else last_prompt
         tr.output_tokens += getattr(usage, "completion_tokens", 0) or 0
         truncated = choice.finish_reason == "length"
         tr.truncated += truncated
