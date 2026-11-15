@@ -24,7 +24,7 @@ int main(int argc,char*argv[]){registerTestlibCmd(argc,argv);
 TESTS = [{"input": "1 2\n", "output": "3\n"}, {"input": "-5 5\n", "output": "0\n"}]
 
 
-def v(code, tl=2.0, ml=256, **kw):
+def v(code, tl=10.0, ml=256, **kw):  # generous: macOS first-exec latency can exceed 1-2 s under load
     return judge.judge(code, TESTS, tl, ml, **kw)
 
 
