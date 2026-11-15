@@ -22,8 +22,10 @@ def ok(t: dict) -> bool:
     last = next((m for m in reversed(msgs) if m["role"] == "assistant"), None)
     if last is None or "EXIT" not in (last.get("content") or ""):
         return False
+    if t.get("regressed"):  # harness flag: a later submission replaced a passing one with worse code
+        return False
     subs = [s for s in (t.get("submissions") or []) if s.get("compiled", True)]
-    if subs:
+    if subs and any("full_passed" in s for s in subs):  # harness rows only carry sample results per submission
         if not subs[-1].get("full_passed"):
             return False
         first = next(i for i, s in enumerate(subs) if s.get("full_passed"))

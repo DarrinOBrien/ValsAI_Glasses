@@ -56,7 +56,9 @@ def normalize(t, problem: dict, attempt: int, model: str) -> dict:
         "ended_by": g("ended_by", "end_reason", default=""),
         "truncated": g("truncated", default=0),
         "submissions": g("submissions", "submission_log", default=None),
-        "score": g("score", "result", default=None),
+        "score": g("score", "result", "final", default=None),  # harness Trajectory stores it as `final`
+        "regressed": g("regressed", default=None),
+        "ended_with_exit": g("ended_with_exit", default=None),
     }
     for k in ("system", "tools"):
         if k in d:
