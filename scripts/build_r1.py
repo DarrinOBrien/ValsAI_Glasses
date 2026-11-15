@@ -83,7 +83,7 @@ def _asst(thinking, text, tool_call=None):
     return m
 
 
-def build(p: dict, trace: dict, tests: list[dict], max_time_frac: float = 0.7) -> dict:
+def build(p: dict, trace: dict, tests: list[dict], max_time_frac: float = 0.6) -> dict:
     """Verify one (problem, trace) and rewrite it. Returns {id, ok, reason?, ...}."""
     pid, tl, ml, chk = p["id"], p["time_limit"], p["memory_limit"], p.get("checker")
     fail = lambda why: {"id": pid, "ok": False, "reason": why}
@@ -126,7 +126,7 @@ def main(argv=None):
     ap.add_argument("--max-problems", type=int, default=200)
     ap.add_argument("--tries", type=int, default=3, help="traces to try per problem")
     ap.add_argument("--max-tokens", type=int, default=8000, help="skip traces longer than this (train max length)")
-    ap.add_argument("--max-time-frac", type=float, default=0.7)
+    ap.add_argument("--max-time-frac", type=float, default=0.6, help="drop solutions slower than this fraction of the limit (see docs/judge_noise.md)")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--keep-failures", action="store_true")
     a = ap.parse_args(argv)

@@ -6,7 +6,8 @@ from cpp.harness import run_episode, HarnessConfig
 
 SUM = '#include <bits/stdc++.h>\nint main(){long long a,b;std::cin>>a>>b;std::cout<<a+b<<"\\n";}'
 WRONG = SUM.replace("a+b", "a-b")
-PROB = {"id": "t1", "statement": "Add two numbers.", "rating": 800, "time_limit": 2.0, "memory_limit": 256.0,
+PROB = {"id": "t1", "statement": "Add two numbers.", "rating": 800, "time_limit": 10.0,  # generous: macOS first-exec latency can exceed 1 s under load
+         "memory_limit": 256.0,
         "sample_tests": [{"input": "1 2\n", "output": "3\n"}],
         "full_tests": [{"input": "1 2\n", "output": "3\n"}, {"input": "7 8\n", "output": "15\n"}],
         "checker": None}

@@ -31,6 +31,8 @@ problems (the open-r1 `test` split is eval-only).
 | `scripts/round.py` | One resumable command per round (sample -> select -> train -> export -> eval -> report) |
 | `scripts/build_r1.py` | R1 (codeforces-cots) hard-problem traces rewritten into harness format, verified in the sandbox |
 | `scripts/grpo.py` | Optional GRPO round on Tinker + medium-difficulty filter |
+| `scripts/thinkfix.py` | Unclosed-`<think>` stats + SFT normalizer/filter (run by `round.py` between select and train) |
+| `scripts/judge_noise.py`, `docs/judge_noise.md` | Judge false-TLE benchmark on Modal and its results |
 | `scripts/smoke_real.py` | Real-model harness smoke test + training-vs-serving template check |
 | `docs/training.md` | Track C notes (sampler throughput, renderer choice, export) |
 
@@ -99,7 +101,8 @@ Each stage's flags, outputs and failure behaviour are in the script's docstring 
 ## Known gotchas
 
 - **Prompt template parity.** Training prompts are built by the Tinker renderer, serving prompts by vLLM's HF template. `smoke_real` compares them token-for-token; tool specs must be the full `{"type":"function","function":...}` objects (fixed in `cpp/policy.py`).
-- **Tool calls inside an unclosed `<think>` block** are common for Qwen3.5 (about half of turns in the smoke test). The Tinker renderer parses them; check that vLLM's `--reasoning-parser qwen3` + `qwen3_coder` tool parser also recovers them (compare malformed rate between `smoke_real` and a vLLM eval).
+- **Tool calls inside an unclosed `<think>` block**: about 60% of baseline tool-call turns (26/43 in the smoke test) never write `</think>`; the Tinker renderer recovers the call, but the real harness's reasoning parser may not (-> malformed calls). Training rows are therefore normalized by `scripts.thinkfix normalize` (pre-call text moves into the reasoning field, so targets read `<think>..</think><tool_call>`), `round.py` runs it before training, and `analyze` reports an "unclosed think" column - it should fall to ~0 after round 1. `--max-empty-frac` drops trajectories that mostly skip thinking.
 - **Checkers**: `cpp/judge.py` expects testlib C++ source; make sure the pool's `checker` field is C++ (not a Python checker) or those problems are skipped/misjudged.
+- **Judge timing**: on Modal the judge is quiet (no false TLEs in 18k runs; see `docs/judge_noise.md`), so keep `cpu=2, max_inputs=2` and select with a 0.6 x limit time margin. Local macOS timing is noisy; use Modal for real runs.
 - **Cold start**: first vLLM start on a replica takes minutes (weights, compile, CUDA graphs); Modal answers `303` while it starts, so use `httpx`/`curl -L` and poll `/health`.
 - Cost guards: all `round.py` spending stages need `--yes`; sampler and teacher-style deployments bill by the hour until stopped.
