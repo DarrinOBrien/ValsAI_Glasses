@@ -171,8 +171,9 @@ async def train(a):
     r = policy.get_renderer()
     prefix = policy.system_messages(r)
     sc = tinker.ServiceClient()
-    tc = (sc.create_training_client_from_state(a.init) if a.init else
-          sc.create_lora_training_client(base_model=policy.BASE_MODEL, rank=a.rank)).result()
+    W = lambda fut: asyncio.to_thread(fut.result)  # Tinker futures block; keep them off the event loop
+    tc = await W(sc.create_training_client_from_state(a.init) if a.init else
+                 sc.create_lora_training_client(base_model=policy.BASE_MODEL, rank=a.rank))
     judge_fn = harness.modal_judge() if a.judge == "modal" else harness.local_judge
     os.makedirs(f"runs/{a.name}", exist_ok=True)
     log = open(f"runs/{a.name}/metrics.jsonl", "a")
@@ -183,7 +184,7 @@ async def train(a):
         if len(order) < a.problems_per_step:
             order += random.sample(problems, len(problems))
         batch, order = order[:a.problems_per_step], order[a.problems_per_step:]
-        samp = tc.save_weights_and_get_sampling_client(name=f"{a.name}-s{step}").result()  # current policy
+        samp = await W(tc.save_weights_and_get_sampling_client(name=f"{a.name}-s{step}"))  # current policy
         make = lambda: TinkerChatClient(samp, r, prefix)
         res = await asyncio.gather(*[rollout_group(p, make, a.group_size, harness.run_episode, judge_fn,
                                                    a.turn_penalty, sem, max_turns=a.max_turns,
@@ -195,14 +196,14 @@ async def train(a):
              "solve_rate": st["solved"] / max(st["episodes"], 1), "avg_turns": st["turns"] / max(st["episodes"], 1)}
         if data:
             for i in range(0, len(data), a.batch_size):  # accumulate grads, single optimizer step
-                fb = tc.forward_backward(data[i:i + a.batch_size], loss_fn="importance_sampling").result()
-            tc.optim_step(tinker.AdamParams(learning_rate=a.lr, beta1=0.9, beta2=0.95, eps=1e-8)).result()
+                await W(tc.forward_backward(data[i:i + a.batch_size], loss_fn="importance_sampling"))
+            await W(tc.optim_step(tinker.AdamParams(learning_rate=a.lr, beta1=0.9, beta2=0.95, eps=1e-8)))
         m["train_sec"] = time.time() - t1
         print(m, flush=True)
         log.write(json.dumps(m) + "\n"); log.flush()
         if (step + 1) % a.save_every == 0 or step == a.steps - 1:
-            path = tc.save_weights_for_sampler(name=f"{a.name}-step{step + 1}").result().path
-            state = tc.save_state(name=f"{a.name}-step{step + 1}").result().path
+            path = (await W(tc.save_weights_for_sampler(name=f"{a.name}-step{step + 1}"))).path
+            state = (await W(tc.save_state(name=f"{a.name}-step{step + 1}"))).path
             rec = {"name": a.name, "step": step + 1, "sampler_path": path, "state_path": state, "lr": a.lr,
                    "init": a.init, "kind": "grpo"}
             print(rec, flush=True)
