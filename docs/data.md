@@ -63,6 +63,21 @@ trace per problem (mean 12.6k tokens, mean rating 2566); `r1_hard_all.jsonl` = e
 problem). Record: `{id, rating, tokens, thinking, code, in_pool}`; the plan restricts use to pool problems the model never
 solves, so pick from `r1_hard_all.jsonl` after round 1 by `id`.
 
+### R1 verification results (`scripts/build_r1.py`, Modal judge, 2026-11-14)
+
+Each trace's C++ was judged on ALL full tests (Modal `tinker-cpp` judge; python checkers supported), required max test time <= 0.6 x limit,
+a matching sample-1 run and passing samples. Drops (reasons by count):
+
+| Candidate set | Cap | Judged | Kept | Drops |
+| --- | --- | --- | --- | --- |
+| `r1_hard.jsonl` (200) | 14k tokens | 115 | **39** | too_long 85, wrong_answer 72, slow 2, compile_error 2 |
+| `r1_hard_all.jsonl` in pool (364) | 30k tokens | 364 | **67** | wrong_answer 281, compile_error 11, slow 3, sample_run_mismatch 1, OSError 1 |
+
+Survivors (30k set): rating mix 2200-2399: 27, 2400-2599: 25, 2600-2799: 8, 2800+: 7 (mean 2437); mean trace 13.3k tokens (max 19.5k);
+at a 14k cap 39 remain (mean 10.9k), at 16k 48. Pass rate falls with rating (27/93, 25/101, 8/67, 7/103) and with trace length
+(34% of judged for the 200 shortest-per-problem set vs 18% overall). R1 traces are mostly wrong on these problems, which is why verification is mandatory.
+Output files (gitignored): `data/pools/r1_hard_14k.jsonl` (39), `r1_hard_30k.jsonl` (67), plus `r1_*_full.jsonl` with the failures.
+
 ## Known gaps
 
 - 754 of 1,500 pool problems (from older contests) have no generated tests, so only the official <400-char tests
