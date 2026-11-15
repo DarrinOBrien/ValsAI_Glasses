@@ -59,3 +59,22 @@ def holdout(n: int = 40, max_rating: int = 1700, path: str = "data/holdout.jsonl
         for p in ps:
             f.write(json.dumps(p) + "\n")
     return ps
+
+
+# ---- Track B pool (built by scripts/build_pool.py; files live on Modal volume cpp-data under /pool) ----
+POOL_DIR = "data/pool"           # local copy via `modal run scripts/build_pool.py::pull`; on Modal use /vol/pool
+
+
+def load_pool(name: str = "pool.jsonl", pool_dir: str = POOL_DIR) -> list[dict]:
+    """Records: {id, title, statement, rating, tags, time_limit, memory_limit, sample_tests,
+    full_tests: {path, n, n_official, n_generated}, checker (python checker source or None)}."""
+    return [json.loads(l) for l in open(os.path.join(pool_dir, name))]
+
+
+def full_tests(p: dict, vol_root: str | None = None) -> list[dict]:
+    """Load [{'input','output'}] for a pool/eval record. Test JSON lives on the volume at p['full_tests']['path']
+    (/vol/pool/tests/<id>.json); pass vol_root if the volume is mounted elsewhere (e.g. '/root/data')."""
+    path = p["full_tests"]["path"]
+    if vol_root:
+        path = path.replace("/vol/", vol_root.rstrip("/") + "/", 1)
+    return json.load(open(path))["tests"]
