@@ -17,7 +17,7 @@ image = (
 
 
 @app.function(image=image, volumes={"/root/data": vol}, cpu=32, memory=65536, timeout=4 * 3600)
-def build_p1(hard: int = 900, medium: int = 700, easy: int = 150, max_tokens: int = 11000, tries: int = 3, oversample: int = 3,
+def build_p1(hard: int = 900, medium: int = 700, easy: int = 150, max_tokens: int = 11000, tries: int = 5, oversample: int = 3,
              holdout_jsonl: str = "", out: str = "p1.jsonl"):
     import argparse, os
     from scripts import build_p1 as b
@@ -25,13 +25,13 @@ def build_p1(hard: int = 900, medium: int = 700, easy: int = 150, max_tokens: in
     with open("data/holdout.jsonl", "w") as f:
         f.write(holdout_jsonl)
     b.main(argparse.Namespace(hard=hard, medium=medium, easy=easy, max_tokens=max_tokens, min_tests=3, tries=tries,
-                              oversample=oversample, retry_frac=0.15, workers=30,
+                              oversample=oversample, retry_prob=0.8, workers=30,
                               out=f"data/pools/{out}"))
     vol.commit()
 
 
 @app.local_entrypoint()
-def p1(hard: int = 900, medium: int = 700, easy: int = 150, tries: int = 3, oversample: int = 3, out: str = "p1.jsonl"):
+def p1(hard: int = 900, medium: int = 700, easy: int = 150, tries: int = 5, oversample: int = 3, out: str = "p1.jsonl"):
     build_p1.remote(out=out, hard=hard, medium=medium, easy=easy, tries=tries, oversample=oversample,
                     holdout_jsonl=open("data/holdout.jsonl").read())
 

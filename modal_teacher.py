@@ -68,7 +68,7 @@ async def run_problem(problem: dict, url: str, max_tokens: int = 16000, max_turn
     im_end = tok.encode("<|im_end|>", add_special_tokens=False)
     stops = r.get_stop_sequences()
     stop_ids = [s for s in stops if isinstance(s, int)] or im_end
-    client = httpx.AsyncClient(timeout=1800, headers={"Authorization": f"Bearer {os.environ['VLLM_KEY']}"})
+    client = httpx.AsyncClient(timeout=1800, follow_redirects=True, headers={"Authorization": f"Bearer {os.environ['VLLM_KEY']}"})
 
     async def pol(messages):
         ids = r.build_generation_prompt(messages).to_ints()

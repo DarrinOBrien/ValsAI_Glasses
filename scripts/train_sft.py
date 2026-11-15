@@ -29,7 +29,7 @@ def main(a):
         # history, so this is the only way each target sees the same prefix it will see when sampling.
         msgs = sysm + policy.hydrate(row["messages"])
         ds = [conversation_to_datum(msgs[: i + 1], r, None, renderers.TrainOnWhat.LAST_ASSISTANT_MESSAGE)
-              for i, m in enumerate(msgs) if m["role"] == "assistant"]
+              for i, m in enumerate(msgs) if m["role"] == "assistant" and m.get("train", True)]
         if max(d.model_input.length for d in ds) > a.max_length:  # drop, never truncate
             skipped += 1
             continue
