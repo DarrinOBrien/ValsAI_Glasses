@@ -1,7 +1,7 @@
 """Expert-iteration sampling: N attempts per problem through the harness, trajectories -> Modal volume.
 
 Deploy the server first (modal deploy modal_sampler.py), then:
-  uv run modal run scripts/sample.py --tag r1 --attempts 4 --limit 20           # pool: /vol/pool.jsonl
+  uv run modal run scripts/sample.py --tag r1 --attempts 4 --limit 20           # pool: /cpp/pool/pool.jsonl (cpp-data volume, or any path on qwen-weights /vol)
   uv run modal run scripts/sample.py --tag r2 --model r1 --pool /vol/pool_r2.jsonl   # LoRA adapter name
   uv run modal run scripts/sample.py --tag smoke --limit 3 --stub               # no harness / no GPU needed
   uv run modal volume get qwen-weights trajectories/r1.jsonl data/
@@ -21,6 +21,7 @@ import modal
 
 app = modal.App("qwen-sampling-runs")
 vol = modal.Volume.from_name("qwen-weights", create_if_missing=True)
+cppdata = modal.Volume.from_name("cpp-data", create_if_missing=True)  # Track B writes /cpp/pool/pool.jsonl
 key = modal.Secret.from_dict({"VLLM_KEY": os.environ.get("VLLM_KEY") or __import__("hashlib").sha256(
     (os.environ.get("MODAL_TOKEN_SECRET", "") + "vllm").encode()).hexdigest()[:32]})
 image = (
@@ -94,7 +95,7 @@ async def run_attempt(problem: dict, attempt: int, url: str, model: str = "qwen"
         return {"problem_id": problem.get("id"), "attempt": attempt, "error": repr(e)[:300]}
 
 
-@app.function(image=image, volumes={"/vol": vol}, timeout=12 * 3600, cpu=2)
+@app.function(image=image, volumes={"/vol": vol, "/cpp": cppdata}, timeout=12 * 3600, cpu=2)
 def run(tag: str, attempts: int, limit: int, pool: str, url: str, model: str, stub: bool, temperature: float,
         max_tokens: int):
     import time
@@ -132,7 +133,7 @@ def run(tag: str, attempts: int, limit: int, pool: str, url: str, model: str, st
 
 
 @app.local_entrypoint()
-def main(tag: str, attempts: int = 4, limit: int = 0, pool: str = "/vol/pool.jsonl", model: str = "qwen",
+def main(tag: str, attempts: int = 4, limit: int = 0, pool: str = "/cpp/pool/pool.jsonl", model: str = "qwen",
          stub: bool = False, temperature: float = 0.8, max_tokens: int = 16384):
     url = modal.Function.from_name("qwen-sampler", "serve").get_web_url()
     run.remote(tag, attempts, limit, pool, url, model, stub, temperature, max_tokens)
