@@ -13,7 +13,9 @@ import glob, json, os, re, sys
 import modal
 
 sys.path.insert(0, os.path.dirname(__file__))
-from build_pool import app, image, secret, data_vol, read_split, ids_of, RAW, OUT  # noqa: E402
+from build_pool import app, image as _img, secret, data_vol, read_split, ids_of, RAW, OUT  # noqa: E402
+
+image = _img.add_local_python_source("build_pool")  # the container must be able to import build_pool too
 
 CODE_RE = re.compile(r"```(?:cpp|c\+\+|C\+\+)?\s*\n(.*?)```", re.DOTALL)
 MIN_RATING, TARGET = 2200, 200
