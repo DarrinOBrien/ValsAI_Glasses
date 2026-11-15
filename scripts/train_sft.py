@@ -23,8 +23,17 @@ from tinker_cookbook.tokenizer_utils import get_tokenizer
 BASE_MODEL = "Qwen/Qwen3.5-9B"
 
 
-def get_renderer():
-    return renderers.get_renderer("qwen3_5_preserve_thinking", get_tokenizer(BASE_MODEL))
+def get_renderer(mode: str = "turn"):
+    # Per-turn datums must see the SAME history the model sees when sampled: the harness does not resend earlier
+    # reasoning, and the HF template strips it, so use the plain `qwen3_5` renderer (matches the HF template, checked by
+    # smoke_real). `qwen3_5_preserve_thinking` keeps earlier reasoning in context and is only right for whole-trajectory datums.
+    name = "qwen3_5_preserve_thinking" if mode == "trajectory" else "qwen3_5"
+    return renderers.get_renderer(name, get_tokenizer(BASE_MODEL))
+
+
+def has_thinking(m: dict) -> bool:
+    c = m.get("content")
+    return isinstance(c, list) and any(p.get("type") == "thinking" and (p.get("thinking") or "").strip() for p in c)
 
 
 def prefix_for(row, r):
@@ -77,7 +86,7 @@ def to_renderer_messages(messages: list[dict]) -> list[dict]:
 
 def main(a):
     random.seed(a.seed)
-    r = get_renderer()
+    r = get_renderer(a.mode)
     rows = []
     for path in a.data:
         rows += [json.loads(l) for l in open(path)]
@@ -102,8 +111,13 @@ def main(a):
         if a.mode == "trajectory" and sum(m["role"] == "user" for m in msgs) == 1:
             ds = [conversation_to_datum(msgs, r, None, renderers.TrainOnWhat.ALL_ASSISTANT_MESSAGES)]
         else:
+            # skip targets that start with an EMPTY think block: they teach the model to skip thinking and answer in
+            # prose (r1 failure: exits at turn 1 without a tool call). Such turns stay as context for later turns.
             ds = [conversation_to_datum(msgs[: i + 1], r, None, renderers.TrainOnWhat.LAST_ASSISTANT_MESSAGE)
-                  for i in asst]
+                  for i in asst if has_thinking(msgs[i])]
+            if not ds:
+                skipped += 1
+                continue
         if max(d.model_input.length for d in ds) > a.max_length:  # drop, never truncate
             skipped += 1
             continue

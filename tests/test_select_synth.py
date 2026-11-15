@@ -20,7 +20,7 @@ def row(msgs, **kw):
 def test_cut_after_first_passing_submission_of_final_code():
     msgs = [{"role": "user", "content": "p"}, _sub("A"), _res(1), _sub("B"), _res(3), _sub("B"), _res(3), _sub("B"), _res(3)]
     new = synth_exit(row(msgs))
-    assert new["messages"][-1] == {"role": "assistant", "content": "EXIT", "reasoning_content": ""}
+    assert new["messages"][-1]["content"] == "EXIT" and new["messages"][-1]["reasoning_content"].strip()
     assert len(new["messages"]) == 6 and new["messages"][-2]["content"].startswith("3/3")  # user, A, res, B, res, EXIT
     assert new["turns"] == 3 and new["ended_by"] == "exit" and ok(new)
 

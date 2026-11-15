@@ -78,7 +78,8 @@ async def main_async(a):
             c = TinkerChatClient(sc, r, prefix)
             clients.append(c)
             return await harness.run_episode(p, c, max_turns=a.max_turns, max_tokens=a.max_tokens,
-                                             temperature=a.temperature)
+                                             temperature=a.temperature,
+                                             judge_fn=harness.modal_judge() if a.judge == "modal" else harness.local_judge)
 
     trajs = await asyncio.gather(*[one(p) for p in probs for _ in range(a.k)])
     turns = sum(t.turns for t in trajs) or 1
@@ -123,6 +124,7 @@ def main(argv=None):
     ap.add_argument("--concurrency", type=int, default=8)
     ap.add_argument("--max-malformed", type=float, default=0.05)
     ap.add_argument("--save", default=None, help="write trajectories JSONL here")
+    ap.add_argument("--judge", choices=["local", "modal"], default="local")
     a = ap.parse_args(argv)
     from dotenv import load_dotenv
     load_dotenv(".env")

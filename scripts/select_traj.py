@@ -50,7 +50,8 @@ def synth_exit(t: dict) -> dict | None:
             frac = max(1, sum(len(str(m.get("content") or "")) + len(str(m.get("reasoning_content") or "")) for m in kept)) / \
                 max(1, sum(len(str(m.get("content") or "")) + len(str(m.get("reasoning_content") or "")) for m in msgs))
             new = dict(t)
-            new["messages"] = kept + [{"role": "assistant", "content": "EXIT", "reasoning_content": ""}]
+            new["messages"] = kept + [{"role": "assistant", "content": "EXIT",
+                                                         "reasoning_content": "The solution passes all the sample tests, so I am finished."}]
             new["turns"] = sum(m["role"] == "assistant" for m in new["messages"])
             new["output_tokens"] = int((t.get("output_tokens") or 0) * frac)
             new["ended_by"], new["regressed"], new["synth_exit"] = "exit", False, True
