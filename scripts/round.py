@@ -17,7 +17,9 @@ Modal/Tinker money). Stages and the CLIs they call (documented in docs/training.
   fetch          modal volume get qwen-weights trajectories/T.jsonl data/trajectories/
   stop_sample    modal app stop qwen-sampler --yes
   select         python -m scripts.select_traj data/trajectories/T.jsonl --out data/selected_T.jsonl [+ --extra files]
-  train          python -m scripts.train_sft --name T --data data/selected_T.jsonl [--init S] [--lr X]
+  normalize      python -m scripts.thinkfix normalize data/selected_T.jsonl --out data/selected_T.norm.jsonl
+                 (closes </think> before tool calls so training turns parse under any reasoning parser)
+  train          python -m scripts.train_sft --name T --data data/selected_T.norm.jsonl [--init S] [--lr X]
   export         python -m scripts.export_lora --state <state_path from runs/checkpoints.jsonl> --name T ; modal volume put
   deploy_eval    ADAPTERS=T=/vol/adapters/T modal deploy modal_sampler.py
   eval           python -m scripts.eval --name T --problems data/eval150.jsonl --base-url <--eval-url> --model T --judge modal
@@ -34,7 +36,7 @@ import argparse, json, os, shlex, subprocess, sys
 from dataclasses import dataclass, field
 from typing import Callable
 
-STAGES = ["deploy_sample", "sample", "fetch", "stop_sample", "select", "train", "export",
+STAGES = ["deploy_sample", "sample", "fetch", "stop_sample", "select", "normalize", "train", "export",
           "deploy_eval", "eval", "stop_eval", "report"]
 
 
@@ -62,6 +64,7 @@ class Ctx:
     baseline: str = "runs/eval/baseline.jsonl"
     replicas: str = "3"
     merge: bool = False
+    max_empty_frac: float = 1.0
     train_args: list[str] = field(default_factory=list)
     root: str = "."
 
@@ -71,6 +74,8 @@ class Ctx:
     def traj(self): return os.path.join(self.root, "data", "trajectories", f"{self.tag}.jsonl")
     @property
     def selected(self): return os.path.join(self.root, "data", f"selected_{self.tag}.jsonl")
+    @property
+    def normalized(self): return os.path.join(self.root, "data", f"selected_{self.tag}.norm.jsonl")
     @property
     def eval_out(self): return os.path.join(self.root, "runs", "eval", f"{self.tag}.jsonl")
     @property
@@ -111,8 +116,12 @@ def commands(stage: str, ctx: Ctx) -> list[Cmd]:
         return [Cmd(modal("app", "stop", "qwen-sampler", "--yes"))]
     if stage == "select":
         return [Cmd(py("scripts.select_traj", ctx.traj, "--out", ctx.selected))]
+    if stage == "normalize":
+        c = py("scripts.thinkfix", "normalize", ctx.selected, *ctx.extra_data, "--out", ctx.normalized)
+        if ctx.max_empty_frac < 1.0: c += ["--max-empty-frac", str(ctx.max_empty_frac)]
+        return [Cmd(c)]
     if stage == "train":
-        c = py("scripts.train_sft", "--name", t, "--data", ctx.selected, *ctx.extra_data)
+        c = py("scripts.train_sft", "--name", t, "--data", ctx.normalized)
         if ctx.init: c += ["--init", ctx.init]
         if ctx.lr: c += ["--lr", str(ctx.lr)]
         return [Cmd(c + ctx.train_args)]
@@ -140,7 +149,7 @@ def commands(stage: str, ctx: Ctx) -> list[Cmd]:
 
 
 def outputs(stage: str, ctx: Ctx) -> list[str]:
-    return {"fetch": [ctx.traj], "select": [ctx.selected], "export": [ctx.export_dir],
+    return {"fetch": [ctx.traj], "select": [ctx.selected], "normalize": [ctx.normalized], "export": [ctx.export_dir],
             "eval": [ctx.eval_out], "report": [ctx.report]}.get(stage, [])
 
 
@@ -204,6 +213,8 @@ def main(argv=None):
     ap.add_argument("--extra-data", nargs="*", default=[], help="more SFT JSONL, e.g. data/pools/r1_hard.jsonl")
     ap.add_argument("--eval-problems", default="data/eval150.jsonl")
     ap.add_argument("--eval-url"); ap.add_argument("--baseline", default="runs/eval/baseline.jsonl")
+    ap.add_argument("--max-empty-frac", type=float, default=1.0,
+                    help="drop selected trajectories whose tool-call turns are mostly reasoning-free")
     ap.add_argument("--replicas", default="3"); ap.add_argument("--merge", action="store_true")
     ap.add_argument("--train-args", default="", help='extra train_sft flags, e.g. "--epochs 1 --batch-size 32"')
     ap.add_argument("--from-stage", choices=STAGES); ap.add_argument("--only", choices=STAGES)
@@ -214,7 +225,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     ctx = Ctx(tag=a.tag, attempts=a.attempts, model=a.model, pool=a.pool, init=a.init, lr=a.lr,
               extra_data=a.extra_data, eval_problems=a.eval_problems, eval_url=a.eval_url, baseline=a.baseline,
-              replicas=a.replicas, merge=a.merge, train_args=shlex.split(a.train_args))
+              replicas=a.replicas, merge=a.merge, max_empty_frac=a.max_empty_frac, train_args=shlex.split(a.train_args))
     stages = [a.only] if a.only else STAGES[STAGES.index(a.from_stage):] if a.from_stage else list(STAGES)
     stages = [s for s in stages if s not in a.skip.split(",")]
     if a.action == "status":

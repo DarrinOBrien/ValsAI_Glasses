@@ -13,7 +13,9 @@ def test_plan_commands(tmp_path):
     s = R.commands("sample", c)[0].argv
     assert s[-6:] == ["--attempts", "4", "--model", "r0", "--pool", "/vol/p.jsonl"]
     t = R.commands("train", c)[0].argv
-    assert "--init" in t and "tinker://s" in t and "--lr" in t and "data/r1.jsonl" in t
+    assert "--init" in t and "tinker://s" in t and "--lr" in t and t[t.index("--data") + 1].endswith("selected_r1.norm.jsonl")
+    n = R.commands("normalize", c)[0].argv
+    assert "data/r1.jsonl" in n and n[-1].endswith("selected_r1.norm.jsonl")
     assert R.commands("eval", c)[0].argv[-4:-2] == ["--model", "r1"]
 
 

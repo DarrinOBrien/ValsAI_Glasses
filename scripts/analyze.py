@@ -45,6 +45,9 @@ def rating_map(problems: list[dict] | None) -> dict[str, int]:
     return {p["id"]: int(p.get("rating") or 0) for p in problems or []}
 
 
+from scripts.thinkfix import turn_counts  # noqa: E402  (stdlib-only sibling)
+
+
 # ------------------------------------------------------------------ per-episode
 def solved(t: dict) -> bool:
     """Harness Trajectory dicts use final.solved; scripts/sample.py rows use score.solved."""
@@ -157,6 +160,9 @@ def analyze_run(trajs: list[dict], ratings: dict[str, int] | None = None, fine: 
         blo, bhi = wilson(ks, len(ts))
         buckets[b] = {"n": len(ts), "solved": ks, "rate": ks / len(ts), "ci": [blo, bhi]}
 
+    tc = [turn_counts(t.get("messages") or []) for t in trajs]
+    tool_turns = sum(c["tool_turns"] for c in tc)
+    unclosed = sum(c["unclosed_text"] + c["unclosed_empty"] for c in tc)
     fails = Counter(c for c in map(failure_category, trajs) if c)
     # per-problem view (k attempts): mean solve rate and pass@any
     per_problem: dict[str, list[bool]] = defaultdict(list)
@@ -175,6 +181,9 @@ def analyze_run(trajs: list[dict], ratings: dict[str, int] | None = None, fine: 
         "episodes_with_truncation": sum(t.get("truncated", 0) > 0 for t in trajs) / n,
         "exit_rate": sum(bool(t.get("ended_with_exit")) for t in trajs) / n,
         "no_submission_rate": sum(not _compiled_code(t) for t in trajs) / n,
+        "unclosed_think_rate": unclosed / tool_turns if tool_turns else None,   # tool-call turns w/o closed think
+        "unclosed_empty_rate": sum(c["unclosed_empty"] for c in tc) / tool_turns if tool_turns else None,
+        "episodes_with_unclosed_think": sum((c["unclosed_text"] + c["unclosed_empty"]) > 0 for c in tc) / n,
         "regressed_rate": sum(bool(t.get("regressed")) for t in trajs) / n,
         "ended_by": dict(Counter(t.get("ended_by") or "?" for t in trajs)),
         "avg_submissions": st.mean(len(t.get("submissions") or []) for t in trajs),
@@ -240,9 +249,10 @@ def render_comparison(names: list[str], res: dict[str, dict], pairs: dict[str, d
         rows.append([n, str(r["n_episodes"]), f"{pct(r['pass_rate'])} [{pct(r['pass_ci'][0])}-{pct(r['pass_ci'][1])}]",
                      d, pct(r["malformed_rate_per_turn"]), pct(r["episodes_with_truncation"]),
                      f1(r["turns"]["mean"]), f1(r["tokens"]["mean"]), pct(r["exit_rate"]),
-                     pct(r["no_submission_rate"])])
+                     pct(r["no_submission_rate"]),
+                     "-" if r["unclosed_think_rate"] is None else pct(r["unclosed_think_rate"])])
     t = md_table(["run", "episodes", "pass (95% CI)", "vs " + names[0], "malformed/turn", "trunc eps",
-                  "avg turns", "avg tokens", "EXIT", "no submit"], rows)
+                  "avg turns", "avg tokens", "EXIT", "no submit", "unclosed think"], rows)
 
     bnames = sorted({b for n in names for b in res[n]["buckets"]}, key=bucket_sort_key)
     brow = []
@@ -277,7 +287,8 @@ def render_detail(name: str, r: dict) -> str:
     eb = ", ".join(f"{k}={v}" for k, v in sorted(r["ended_by"].items()))
     return (f"## {name}\n\npass {pct(r['pass_rate'])} on {r['n_episodes']} episodes / {r['n_problems']} problems "
             f"(pass@any {pct(r['pass_at_any'])}) · avg submissions {r['avg_submissions']:.1f} · "
-            f"regressed {pct(r['regressed_rate'])}\n\nended by: {eb}\n\n{dt}\n\nturn histogram: {th}\n\n"
+            f"regressed {pct(r['regressed_rate'])} · unclosed think on {f1(100 * (r['unclosed_think_rate'] or 0))}% of tool-call turns "
+            f"({f1(100 * (r['unclosed_empty_rate'] or 0))}% with no text at all)\n\nended by: {eb}\n\n{dt}\n\nturn histogram: {th}\n\n"
             f"token histogram: {kh}\n\n{ft}\n")
 
 
