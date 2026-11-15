@@ -32,7 +32,7 @@ def _samples_all_pass(tool_msg: dict) -> bool:
     return bool(m) and m.group(1) == m.group(2) and int(m.group(2)) > 0
 
 
-def synth_exit(t: dict) -> dict | None:
+def synth_exit(t: dict, add_exit: bool = True) -> dict | None:
     """Solved attempts that never wrote EXIT (the model keeps resubmitting passing code until the turn cap):
     cut right after the FIRST submission whose code equals the final graded code and passes all samples, then append
     an `EXIT` turn. The cut keeps exactly the code that passed the full tests, so the label stays correct, and it
@@ -50,8 +50,12 @@ def synth_exit(t: dict) -> dict | None:
             frac = max(1, sum(len(str(m.get("content") or "")) + len(str(m.get("reasoning_content") or "")) for m in kept)) / \
                 max(1, sum(len(str(m.get("content") or "")) + len(str(m.get("reasoning_content") or "")) for m in msgs))
             new = dict(t)
-            new["messages"] = kept + [{"role": "assistant", "content": "EXIT",
-                                                         "reasoning_content": "The solution passes all the sample tests, so I am finished."}]
+            if add_exit:
+                new["messages"] = kept + [{"role": "assistant", "content": "EXIT",
+                                           "reasoning_content": "The solution passes all the sample tests, so I am finished."}]
+            else:  # cut only: the last training target is the passing submit; no EXIT is taught (see r1b post-mortem)
+                new["messages"] = kept
+                new["synth_cut"] = True
             new["turns"] = sum(m["role"] == "assistant" for m in new["messages"])
             new["output_tokens"] = int((t.get("output_tokens") or 0) * frac)
             new["ended_by"], new["regressed"], new["synth_exit"] = "exit", False, True
@@ -67,7 +71,7 @@ def ok(t: dict) -> bool:
         return False
     msgs = t.get("messages") or []
     last = next((m for m in reversed(msgs) if m["role"] == "assistant"), None)
-    if last is None or "EXIT" not in (last.get("content") or ""):
+    if last is None or (not t.get("synth_cut") and "EXIT" not in (last.get("content") or "")):
         return False
     if t.get("regressed"):  # harness flag: a later submission replaced a passing one with worse code
         return False
@@ -84,11 +88,11 @@ def ok(t: dict) -> bool:
 def main(a):
     rows = [json.loads(l) for f in a.files for l in open(f)]
     n_synth = 0
-    if a.synth_exit:
+    if a.exit_mode != "off":
         out = []
         for r in rows:
             if str(r.get("ended_by", "")).lower() != "exit":
-                new = synth_exit(r)
+                new = synth_exit(r, add_exit=a.exit_mode == "exit")
                 if new is not None:
                     n_synth += 1
                     r = new
@@ -111,7 +115,7 @@ def main(a):
     json.dump(stats, open(a.out + ".stats.json", "w"))
     n = len(by)
     sol = sum(s["passed"] > 0 for s in stats.values())
-    print(f"synthesized an EXIT for {n_synth} solved attempts that never exited" if a.synth_exit else "synth-exit off")
+    print(f"rescued {n_synth} solved attempts that never exited (exit-mode={a.exit_mode})")
     print(f"{len(rows)} attempts over {n} problems; {sol} problems with a clean pass; kept {len(keep)} trajectories "
           f"(avg turns {sum(t['turns'] for t in keep)/max(1,len(keep)):.1f}, avg out tokens "
           f"{sum(t['output_tokens'] for t in keep)/max(1,len(keep)):.0f}) -> {a.out}")
@@ -123,6 +127,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("files", nargs="+")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--no-synth-exit", dest="synth_exit", action="store_false",
-                    help="do not rescue solved attempts that never wrote EXIT (default: cut after first passing submission + EXIT)")
+    ap.add_argument("--exit-mode", choices=["cut", "exit", "off"], default="cut",
+                    help="solved attempts that never wrote EXIT: cut = stop after the first passing submission, no EXIT target "
+                         "(default; a synthetic EXIT collapsed r1b into exit-after-run_cpp); exit = also append a synthetic EXIT; off = drop them")
     main(ap.parse_args())

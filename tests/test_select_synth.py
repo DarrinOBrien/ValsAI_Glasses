@@ -31,3 +31,10 @@ def test_not_rescued_when_unsolved_or_malformed_or_never_passing_samples():
     msgs = [{"role": "user", "content": "p"}, _sub("A"), _res(3)]
     assert synth_exit(row(msgs, score={"solved": False})) is None
     assert synth_exit(row(msgs, malformed=1)) is None
+
+
+def test_cut_mode_has_no_exit_turn():
+    msgs = [{"role": "user", "content": "p"}, _sub("B"), _res(3), _sub("B"), _res(3)]
+    new = synth_exit(row(msgs), add_exit=False)
+    assert new["messages"][-1]["role"] == "tool" and new["synth_cut"] and ok(new)
+    assert not any("EXIT" in str(m.get("content")) for m in new["messages"])
