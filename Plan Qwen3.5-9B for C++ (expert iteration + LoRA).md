@@ -128,6 +128,8 @@ We train small LoRA runs on Tinker, about $40 for the planned runs, plus an opti
 | Loss | Assistant tokens only, thinking included |  |
 | Epochs | 1 |  |
 
+**Per-turn training (decided):** `train_sft` defaults to one datum per assistant turn (`--mode turn`), so each target sees the same prompt it saw at sampling time (earlier reasoning is not resent). Earlier turns repeat as context, so training tokens run above the plan's 10M estimate; run `train_sft --dry-run` for the real count and cost before launching.
+
 Costs use $1.463 per million train tokens and $0.807 per million sampled, budgeting as if masked tokens are billed. Save each checkpoint with `save_weights_for_sampler` and record its `tinker://` path.
 
 ## Evaluate and submit

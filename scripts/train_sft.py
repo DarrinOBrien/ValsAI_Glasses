@@ -97,7 +97,9 @@ def main(a):
         # If the only user message is the task prompt, all turns see the same history they will when
         # sampled, so one datum per trajectory (all assistant tokens, thinking included) is exact.
         # A later real user message strips earlier thinking, so fall back to one datum per turn.
-        if sum(m["role"] == "user" for m in msgs) == 1:
+        # DEFAULT (--mode turn, lead's decision): always one datum per assistant turn, so each target sees exactly
+        # the prompt it saw at sampling time (the harness copy does not resend earlier reasoning). Costs more tokens.
+        if a.mode == "trajectory" and sum(m["role"] == "user" for m in msgs) == 1:
             ds = [conversation_to_datum(msgs, r, None, renderers.TrainOnWhat.ALL_ASSISTANT_MESSAGES)]
         else:
             ds = [conversation_to_datum(msgs[: i + 1], r, None, renderers.TrainOnWhat.LAST_ASSISTANT_MESSAGE)
@@ -161,5 +163,7 @@ if __name__ == "__main__":
     ap.add_argument("--rank", type=int, default=32)
     ap.add_argument("--max-length", type=int, default=32000)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--mode", choices=["turn", "trajectory"], default="turn",
+                    help="turn: one datum per assistant turn (default); trajectory: one datum per trajectory when exact")
     ap.add_argument("--dry-run", action="store_true")
     main(ap.parse_args())
