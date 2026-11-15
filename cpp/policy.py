@@ -14,7 +14,9 @@ def get_renderer(model: str = BASE_MODEL, name: str = RENDERER):
 
 
 def system_messages(renderer) -> list[dict]:
-    return renderer.create_conversation_prefix_with_tools(tools.tool_specs(), tools.SYSTEM_PROMPT)
+    # Pass the full OpenAI tool objects ({"type":"function","function":{...}}), not tool_specs(): this is what
+    # the HF chat template (and so vLLM) renders into the prompt. scripts.smoke_real verifies the match.
+    return renderer.create_conversation_prefix_with_tools(tools.TOOLS, tools.SYSTEM_PROMPT)
 
 
 def tinker_policy(sampling_client, renderer, max_tokens: int = 12000, temperature: float = 0.6,
