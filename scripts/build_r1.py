@@ -8,7 +8,7 @@ trace as a short harness episode with REAL tool outputs and drop anything that d
     assistant: submit(code)                                       -> real sample verdicts
     assistant: EXIT
 
-Kept only if the extracted C++ compiles and passes ALL full tests (and the problem's checker, if any), is not
+Kept only if the extracted C++ compiles and passes ALL full tests (and the problem's checker, python or testlib), is not
 slow (max test time <= --max-time-frac of the limit), its sample-1 run matches the expected output (exact-match
 problems), and all samples pass on submit. Problems in --exclude (the eval split) are never used.
 Output rows: {id, ok, kind: "r1", rating, source, max_time, messages} - the same shape scripts.train_sft reads
@@ -17,10 +17,12 @@ Output rows: {id, ok, kind: "r1", rating, source, max_time, messages} - the same
     uv run python -m scripts.build_r1 --problems data/pool.jsonl --traces data/cots/*.parquet \
         --exclude data/eval150.jsonl --out data/pools/r1_hard.jsonl [--tests-root data/tests]
 
---problems: JSONL in the harness schema. full_tests may be a list, or the pool builder's pointer
-{"path": ".../<id>.json", "n": ..} to a JSON file {"tests": [...]}; with --tests-root only the file's basename
-is used, so a pulled copy of a Modal volume works. --traces: JSONL or parquet with `id` and `generation`
-(optional `finish_reason`, `api_metadata.completion_tokens`).
+--problems: pool JSONL. full_tests may be a list, or the pool builder's pointer {"path": "/vol/pool/tests/<id>.json", ...}.
+--judge modal (default for pointers without --tests-root): full-test verification runs on the deployed `tinker-cpp` Modal
+judge, which reads the tests from the cpp-data volume (they are 28 GB: never download them). --judge local reads the
+tests from --tests-root (or the pointer path) and judges with the local sandbox.
+--traces: JSONL or parquet, either raw cots rows (`id`, `generation`, optional `finish_reason`,
+`api_metadata.completion_tokens`) or pre-parsed rows (`id`, `thinking`, `code`, `tokens`) as in r1_hard*.jsonl.
 """
 from __future__ import annotations
 
@@ -35,6 +37,9 @@ DONE_NOTE = "All sample tests passed. The solution is submitted, so I am done."
 
 
 def parse_trace(r: dict) -> dict | None:
+    if r.get("thinking") and r.get("code") and "generation" not in r:   # pre-parsed (build_cots output)
+        return {"id": r["id"], "thinking": r["thinking"].strip(), "code": r["code"].strip(),
+                "tokens": r.get("tokens") or len(r["thinking"]) // 3}
     g = r.get("generation") or ""
     if r.get("finish_reason", "stop") != "stop" or "</think>" not in g:
         return None
@@ -47,7 +52,7 @@ def parse_trace(r: dict) -> dict | None:
     return {"id": r["id"], "thinking": think, "code": blocks[-1].strip(), "tokens": toks}
 
 
-def load_traces(paths: list[str], max_tokens: int) -> dict[str, list[dict]]:
+def load_traces(paths: list[str], max_tokens: int | None = None) -> dict[str, list[dict]]:
     by_id: dict[str, list[dict]] = {}
     for p in paths:
         if p.endswith(".parquet"):
@@ -57,7 +62,7 @@ def load_traces(paths: list[str], max_tokens: int) -> dict[str, list[dict]]:
             rows = (json.loads(l) for l in open(p) if l.strip())
         for r in rows:
             t = parse_trace(r)
-            if t and t["tokens"] <= max_tokens:
+            if t and (max_tokens is None or t["tokens"] <= max_tokens):
                 by_id.setdefault(t["id"], []).append(t)
     return by_id
 
@@ -83,26 +88,45 @@ def _asst(thinking, text, tool_call=None):
     return m
 
 
-def build(p: dict, trace: dict, tests: list[dict], max_time_frac: float = 0.6) -> dict:
-    """Verify one (problem, trace) and rewrite it. Returns {id, ok, reason?, ...}."""
+def modal_full_judge(retries: int = 2):
+    """Sync judge fn backed by the deployed `tinker-cpp` Modal function (tests are read from the cpp-data volume)."""
+    import modal
+    fn = modal.Function.from_name("tinker-cpp", "judge_remote")
+
+    def j(code, tests, tl, ml, chk, stop_on_fail=True, chk_lang=None):
+        for i in range(retries + 1):
+            try:
+                return fn.remote(code, tests, tl, ml, chk, chk_lang)
+            except Exception:
+                if i == retries:
+                    raise
+    return j
+
+
+def local_full_judge(code, tests, tl, ml, chk, stop_on_fail=True, chk_lang=None):
+    return judge.judge(code, tests, tl, ml, chk, stop_on_fail, chk_lang)
+
+
+def build(p: dict, trace: dict, tests, max_time_frac: float = 0.6, judge_fn=local_full_judge) -> dict:
+    """Verify one (problem, trace) and rewrite it. Returns {id, ok, reason?, ...}.
+    tests: list of tests, or the {path,..} pointer when judge_fn resolves it remotely (Modal)."""
     pid, tl, ml, chk = p["id"], p["time_limit"], p["memory_limit"], p.get("checker")
+    cl = p.get("checker_lang")
     fail = lambda why: {"id": pid, "ok": False, "reason": why}
-    if chk and "#include" not in chk:
-        return fail("unsupported_checker")  # judge expects testlib C++ source
     code, s = trace["code"], p["sample_tests"][0]
-    j = judge.judge(code, tests, tl, ml, chk)
+    j = judge_fn(code, tests, tl, ml, chk, True, cl)
     if not j["compiled"]:
         return fail("compile_error")
     if j["passed"] != j["total"] or not j["total"]:
         return fail("wrong_answer")
     if j["max_time"] > max_time_frac * tl:
         return fail("slow")
-    r = judge.run_code(code, s["input"], tl, ml)
+    r = judge.run_code(code, s["input"], max(tl, 10.0), ml)   # local: only the output matters here (tool-result text)
     if not r["compiled"] or r["status"] != "OK":
         return fail("sample_run_failed")
     if not chk and not judge.outputs_match(r["stdout"], s["output"]):
         return fail("sample_run_mismatch")
-    sj = judge.judge(code, p["sample_tests"], tl, ml, chk, False)
+    sj = judge_fn(code, p["sample_tests"], max(tl, 10.0) if judge_fn is local_full_judge else tl, ml, chk, False, cl)
     if sj["passed"] != sj["total"]:
         return fail("samples_failed")
     msgs = [{"role": "user", "content": tools.task_prompt(p)},
@@ -112,7 +136,8 @@ def build(p: dict, trace: dict, tests: list[dict], max_time_frac: float = 0.6) -
             {"role": "tool", "name": tools.SUBMIT_TOOL, "content": tools.format_submit_result(sj, 1)},
             _asst(DONE_NOTE, "EXIT")]
     return {"id": pid, "ok": True, "kind": "r1", "rating": p.get("rating"), "source": "open-r1/codeforces-cots (DeepSeek-R1)",
-            "n_tests": len(tests), "max_time": j["max_time"], "trace_tokens": trace["tokens"], "messages": msgs}
+            "n_tests": len(tests) if isinstance(tests, list) else (tests.get("n") if isinstance(tests, dict) else None),
+            "max_time": j["max_time"], "trace_tokens": trace["tokens"], "messages": msgs}
 
 
 def main(argv=None):
@@ -121,28 +146,39 @@ def main(argv=None):
     ap.add_argument("--traces", nargs="+", required=True, help="JSONL/parquet files or globs")
     ap.add_argument("--out", required=True)
     ap.add_argument("--exclude", nargs="*", default=[], help="problem JSONLs whose ids must never be used (eval)")
-    ap.add_argument("--tests-root", default=None)
+    ap.add_argument("--tests-root", default=None, help="local dir holding <id>.json test files (--judge local)")
+    ap.add_argument("--judge", choices=["modal", "local"], default=None,
+                    help="where full tests are judged; default: local if --tests-root is given, else modal")
     ap.add_argument("--min-rating", type=int, default=2200)
-    ap.add_argument("--max-problems", type=int, default=200)
+    ap.add_argument("--max-problems", type=int, default=200, help="stop keeping after this many verified problems")
+    ap.add_argument("--limit", type=int, default=0, help="attempt only the first N eligible problems (trial runs)")
     ap.add_argument("--tries", type=int, default=3, help="traces to try per problem")
-    ap.add_argument("--max-tokens", type=int, default=8000, help="skip traces longer than this (train max length)")
+    ap.add_argument("--max-tokens", type=int, default=14000, help="skip traces longer than this (SFT max length is 16k incl. prompt)")
     ap.add_argument("--max-time-frac", type=float, default=0.6, help="drop solutions slower than this fraction of the limit (see docs/judge_noise.md)")
-    ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--keep-failures", action="store_true")
     a = ap.parse_args(argv)
 
     banned = {json.loads(l)["id"] for f in a.exclude for l in open(f) if l.strip()}
     paths = [x for g in a.traces for x in sorted(glob.glob(g))]
-    by_id = load_traces(paths, a.max_tokens)
+    by_id = load_traces(paths)   # length filter is applied per problem below so drops are counted
     probs = [p for p in (json.loads(l) for l in open(a.problems) if l.strip())
              if (p.get("rating") or 0) >= a.min_rating and p["id"] not in banned and p["id"] in by_id]
+    if a.limit:
+        probs = probs[:a.limit]
     print(f"{len(by_id)} problems with parsed traces; {len(probs)} eligible (rating>={a.min_rating}, not excluded)")
 
+    mode = a.judge or ("local" if a.tests_root else "modal")
+    jfn = modal_full_judge() if mode == "modal" else local_full_judge
+
     def work(p):
-        tests = resolve_tests(p, a.tests_root)
+        tests = p["full_tests"] if mode == "modal" else resolve_tests(p, a.tests_root)
         last = None
-        for t in by_id[p["id"]][: a.tries]:
-            last = build(p, t, tests, a.max_time_frac)
+        ts = [t for t in by_id[p["id"]] if t["tokens"] <= a.max_tokens]
+        if not ts:
+            return {"id": p["id"], "ok": False, "reason": "too_long"}
+        for t in ts[: a.tries]:
+            last = build(p, t, tests, a.max_time_frac, jfn)
             if last["ok"]:
                 break
         return last
