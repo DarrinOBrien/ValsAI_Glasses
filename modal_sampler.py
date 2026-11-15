@@ -47,8 +47,9 @@ def download():
 
 
 @app.function(image=image, gpu="H100", volumes={"/vol": vol}, secrets=[key], timeout=12 * 3600,
-              scaledown_window=300, max_containers=N_REPLICAS)
-@modal.concurrent(max_inputs=96)
+              scaledown_window=300, max_containers=N_REPLICAS,
+              min_containers=int(os.environ.get("MIN_REPLICAS", "0")))  # >0 keeps GPUs warm (billed!) until app stop
+@modal.concurrent(max_inputs=96, target_inputs=24)  # autoscale past 1 replica; one container would absorb all 96
 @modal.web_server(port=8000, startup_timeout=20 * 60)
 def serve():
     import subprocess

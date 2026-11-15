@@ -79,7 +79,8 @@ async def _stub_episode(problem, client, **kw):
                          {"role": "assistant", "content": m.content or "", "reasoning_content": rc}]}
 
 
-@app.function(image=image, secrets=[key], cpu=2, memory=4096, timeout=3 * 3600, max_containers=200)
+@app.function(image=image, secrets=[key], cpu=1.5, memory=4096, timeout=3 * 3600, max_containers=60)
+@modal.concurrent(max_inputs=6)  # episodes mostly wait on vLLM; 1 per container left GPUs idle, and reserved CPU is billed
 async def run_attempt(problem: dict, attempt: int, url: str, model: str = "qwen", stub: bool = False,
                       temperature: float = 0.8, max_tokens: int = 16384, max_turns: int = 40) -> dict:
     from openai import AsyncOpenAI
