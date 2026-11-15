@@ -11,12 +11,42 @@ if sys.platform == "darwin":  # Homebrew GCC needs the current SDK spelled out
 MAX_OUT = 64 * 1024 * 1024
 
 
+STACK_MB = 256  # Codeforces gives a 256 MB stack; Modal's gVisor caps the main-thread stack at ~8 MB
+# Linked after the user's TU: a constructor switches to an mmap'd 256 MB stack and runs the unmodified
+# main() there (keeps implicit `return 0`), then exit()s. Running last in init order means the user's
+# global constructors have already run.
+WRAPPER = r"""
+#include <sys/mman.h>
+#include <ucontext.h>
+#include <cstdlib>
+int main(int, char**);
+static ucontext_t g_main_ctx, g_run_ctx;
+static void run() { char* av[] = {(char*)"a.out", nullptr}; exit(main(1, av)); }
+__attribute__((constructor)) static void switch_stack() {
+    size_t sz = (size_t)%d << 20;
+    void* p = mmap(nullptr, sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    if (p == MAP_FAILED) return;  // fall back to the normal stack
+    getcontext(&g_run_ctx);
+    g_run_ctx.uc_stack.ss_sp = p; g_run_ctx.uc_stack.ss_size = sz; g_run_ctx.uc_link = &g_main_ctx;
+    makecontext(&g_run_ctx, run, 0);
+    swapcontext(&g_main_ctx, &g_run_ctx);
+}
+""" % STACK_MB
+
+
 def compile_cpp(code: str, workdir: str, timeout: float = 60) -> tuple[bool, str, str]:
     src, exe = os.path.join(workdir, "a.cpp"), os.path.join(workdir, "a.out")
+    files = [src]
     with open(src, "w") as f:
         f.write(code)
+    if sys.platform.startswith("linux"):  # macOS (dev only) already allows a raised stack rlimit
+        wrap = os.path.join(workdir, "wrap.cpp")
+        with open(wrap, "w") as f:
+            f.write(WRAPPER)
+        files.append(wrap)
     try:
-        p = subprocess.run([CXX, *FLAGS, src, "-o", exe], capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run([CXX, *FLAGS, *files, "-o", exe],
+                           capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return False, "Compilation timed out", exe
     return p.returncode == 0, p.stderr[-4000:], exe
@@ -27,7 +57,7 @@ def _limits(ml_mb: float, tl: float):
         cpu = int(tl) + 2
         resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
         if sys.platform.startswith("linux"):
-            b = int(ml_mb * 1024 * 1024)
+            b = int((ml_mb + STACK_MB) * 1024 * 1024)  # the big stack thread's mapping counts toward AS
             resource.setrlimit(resource.RLIMIT_AS, (b, b))
             resource.setrlimit(resource.RLIMIT_STACK, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
         else:
