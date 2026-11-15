@@ -53,6 +53,7 @@ from cpp import judge as _judge, tools as T
 class HarnessConfig:
     system_prompt: str = T.SYSTEM_PROMPT
     tools: list[dict] = field(default_factory=lambda: T.TOOLS)  # OpenAI tool JSON schema
+    code_arg: str = T.CODE_ARG
     run_tool: str = T.RUN_TOOL
     submit_tool: str = T.SUBMIT_TOOL
     exit_token: str = "EXIT"
@@ -165,8 +166,8 @@ async def run_episode(problem: dict, client, max_turns: int | None = None, max_t
     tl, ml, checker = problem["time_limit"], problem["memory_limit"], problem.get("checker")
     clang = problem.get("checker_lang")
     tr = Trajectory(problem_id=problem["id"], tools=cfg.tools)
-    msgs: list[dict] = [{"role": "system", "content": cfg.system_prompt},
-                        {"role": "user", "content": cfg.task_prompt(problem)}]
+    msgs: list[dict] = ([{"role": "system", "content": cfg.system_prompt}] if cfg.system_prompt else []) + [
+        {"role": "user", "content": cfg.task_prompt(problem)}]
     tr.messages = msgs
     bad_streak = 0
     best_sample_pass = False
@@ -215,9 +216,9 @@ async def run_episode(problem: dict, client, max_turns: int | None = None, max_t
             name, raw = tc["function"]["name"], tc["function"]["arguments"]
             try:
                 a = json.loads(raw) if isinstance(raw, str) else raw
-                code = a.get("code")
+                code = a.get(cfg.code_arg)
                 if name not in (cfg.run_tool, cfg.submit_tool) or not isinstance(code, str):
-                    raise ValueError(f"unknown tool or missing 'code' for '{name}'")
+                    raise ValueError(f"unknown tool or missing '{cfg.code_arg}' for '{name}'")
                 if name == cfg.run_tool:
                     r = await asyncio.to_thread(_judge.run_code, code, str(a.get("stdin", "")), tl, ml)
                     out = cfg.format_run(r)
