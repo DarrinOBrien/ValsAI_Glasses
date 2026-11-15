@@ -96,3 +96,26 @@ def bench(n: int = 64, max_tokens: int = 4096):
 @app.function(image=image, secrets=[key], timeout=600, cpu=1)
 def url() -> str:
     return serve.get_web_url()
+
+
+export_image = (modal.Image.debian_slim(python_version="3.12")
+                .pip_install("tinker-cookbook", "transformers", "torch", "safetensors", "huggingface_hub"))
+
+
+@app.function(image=export_image, volumes={"/vol": vol}, cpu=8, memory=65536, timeout=3600)
+def build(name: str, merge: bool = False):
+    """Raw Tinker adapter at /vol/raw/<name> -> /vol/adapters/<name> (PEFT) or /vol/merged/<name> (merged bf16).
+    Runs next to the base weights on the volume; building on a laptop re-downloads the 18 GB base model."""
+    import glob, shutil
+    from tinker_cookbook import weights
+    vol.reload()
+    out = f"/vol/{'merged' if merge else 'adapters'}/{name}"
+    shutil.rmtree(out, ignore_errors=True)
+    kw = dict(base_model=VOL_MODEL, adapter_path=f"/vol/raw/{name}", output_path=out)
+    (weights.build_hf_model if merge else weights.build_lora_adapter)(**kw)
+    if merge:  # tokenizer/config extras vLLM needs next to the merged weights
+        for f in glob.glob(VOL_MODEL + "/*.json") + glob.glob(VOL_MODEL + "/*.jinja") + glob.glob(VOL_MODEL + "/*.txt"):
+            if not os.path.exists(f"{out}/{os.path.basename(f)}"):
+                shutil.copy(f, out)
+    vol.commit()
+    print("wrote", out)
