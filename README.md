@@ -20,7 +20,7 @@ problems (the open-r1 `test` split is eval-only).
 | --- | --- |
 | `cpp/tools.py` | **Everything the scoring harness controls**: tool schema, system/task prompt, tool-result text. Edit here if staff give the real values, then regenerate data |
 | `cpp/harness.py` | `run_episode(problem, client, ...)` -> `Trajectory`; OpenAI-compatible client, `HarnessConfig`, local/Modal judge |
-| `cpp/judge.py`, `modal_app.py` | g++ sandbox, testlib-C++ checkers; Modal CPU `judge_remote` |
+| `cpp/judge.py`, `modal_app.py` | g++ sandbox, Python (open-r1) and testlib-C++ checkers; Modal CPU `judge_remote` |
 | `cpp/policy.py` | Renderer + system prefix for Tinker. Must render prompts identically to the HF chat template (checked by `smoke_real`) |
 | `scripts/build_pool.py` | Problem pool, eval150 holdout and R1 hard set on Modal volumes |
 | `modal_sampler.py` | Qwen3.5-9B vLLM server on Modal (N H100 replicas, optional LoRA / merged model) |
@@ -69,15 +69,17 @@ uv run python -m scripts.round run  --tag r2 --yes --model r1 --init tinker://..
 #    variant: --tag v1 --lr 5e-5 [--extra-data data/pools/r1_hard.jsonl]
 
 # 4. R1 hard-problem traces (after pool is built; verified, real tool outputs)
-uv run python -m scripts.build_r1 --problems data/pool.jsonl --traces 'data/cots/*.parquet' \
-    --exclude data/eval150.jsonl --tests-root data/tests --out data/pools/r1_hard.jsonl
+#    full tests stay on the cpp-data volume: verification runs on the deployed `tinker-cpp` Modal judge (default; `--judge local --tests-root` for local files)
+uv run python -m scripts.build_r1 --problems data/pool/pool.jsonl --traces data/pool/r1_hard_all.jsonl \
+    --exclude data/pool/eval150.jsonl --max-tokens 30000 --keep-failures --out data/pools/r1_all_full.jsonl
+#    (--limit 10 for a trial; drop --keep-failures for a train-ready file; --max-tokens must fit the SFT max length)
 
 # 5. compare checkpoints / decide what to submit
 uv run python -m scripts.analyze baseline=runs/eval/baseline.jsonl r1=runs/eval/r1.jsonl v1=runs/eval/v1.jsonl \
     --problems data/eval150.jsonl --json runs/compare.json
 
 # 6. optional GRPO (only if budget remains)
-uv run python -m scripts.grpo select --trajs data/trajectories/r1.jsonl --problems data/pool.jsonl --out data/grpo_pool.jsonl
+uv run python -m scripts.grpo select --trajs data/trajectories/r1.jsonl --problems data/pool/pool.jsonl --out data/grpo_pool.jsonl
 uv run python -m scripts.grpo train --name grpo --init <round-2 state path> --problems data/grpo_pool.jsonl
 ```
 
@@ -104,4 +106,4 @@ Each stage's flags, outputs and failure behaviour are in the script's docstring 
 - **Checkers**: open-r1 checkers are Python (`checker_lang: "python"`, run as `python checker.py in ans out`, accept = exit 0 and score >= `checker_max_score`); testlib C++ checkers are also supported. A checker timeout is a `JE` verdict, never a pass.
 - **Judge timing**: on Modal the judge is quiet (no false TLEs in 18k runs; see `docs/judge_noise.md`), so keep `cpu=2, max_inputs=2` and select with a 0.6 x limit time margin. Local macOS timing is noisy; use Modal for real runs.
 - **Cold start**: first vLLM start on a replica takes minutes (weights, compile, CUDA graphs); Modal answers `303` while it starts, so use `httpx`/`curl -L` and poll `/health`.
-- Cost guards: all `round.py` spending stages need `--yes`; sampler and teacher-style deployments bill by the hour until stopped.
+- Cost guards: all `round.py` spending stages need `--yes`; the `qwen-sampler` GPU app bills by the hour until stopped.
