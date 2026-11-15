@@ -41,25 +41,25 @@ import asyncio, inspect, json, re
 from dataclasses import dataclass, field, asdict
 from typing import Any, Callable
 
-from cpp import judge as _judge, tools
+from cpp import judge as _judge, tools as T
 
 
 @dataclass
 class HarnessConfig:
-    system_prompt: str = tools.SYSTEM_PROMPT
-    tools: list[dict] = field(default_factory=lambda: tools.TOOLS)  # OpenAI tool JSON schema
-    run_tool: str = tools.RUN_TOOL
-    submit_tool: str = tools.SUBMIT_TOOL
+    system_prompt: str = T.SYSTEM_PROMPT
+    tools: list[dict] = field(default_factory=lambda: T.TOOLS)  # OpenAI tool JSON schema
+    run_tool: str = T.RUN_TOOL
+    submit_tool: str = T.SUBMIT_TOOL
     exit_token: str = "EXIT"
     max_turns: int = 100           # used when run_episode(max_turns=None)
-    max_submissions: int = tools.MAX_SUBMISSIONS
+    max_submissions: int = T.MAX_SUBMISSIONS
     max_malformed: int = 3         # consecutive malformed assistant messages that end the episode
     max_context_tokens: int = 60000  # stop if prompt_tokens exceeds this
     no_action_is_malformed: bool = True  # assistant message with no tool call and no EXIT
     send_reasoning_back: bool = False    # include reasoning_content in history sent to the model
-    task_prompt: Callable[[dict], str] = tools.task_prompt
-    format_run: Callable[[dict], str] = tools.format_run_result
-    format_submit: Callable[[dict, int], str] = tools.format_submit_result
+    task_prompt: Callable[[dict], str] = T.task_prompt
+    format_run: Callable[[dict], str] = T.format_run_result
+    format_submit: Callable[[dict, int], str] = T.format_submit_result
     extra_body: dict = field(default_factory=dict)  # e.g. {"chat_template_kwargs": {"enable_thinking": True}}
 
 
