@@ -13,7 +13,7 @@ We start from the post-trained **Qwen3.5-9B** (thinking mode) and improve it wit
 | Training | 2 rounds of LoRA SFT, plus 1 variant run; short GRPO only if budget remains | Full fine-tuning |
 | Compute | Modal GPUs for sampling and evals (vLLM); Tinker for training | Sampling on Tinker (costs more) |
 
-The main risk is making the model worse than it started, so we submit the untouched model first as the baseline, and keep every SFT round small and gentle.
+The main risk is making the model worse than it started, so we compare every run against a local baseline eval of the untouched model (we do not submit the untouched model), and keep every SFT round small and gentle.
 
 **Rules to keep in view:** at most 9B active parameters, no OpenAI or Anthropic teacher traces, never train on the scoring problems. Staff have confirmed that starting from Qwen3.5-9B is allowed.
 
@@ -147,7 +147,7 @@ The untouched Qwen3.5-9B is submitted first and is the score every run must beat
 
 **Submitting**
 
-- Submit the baseline right away, with thinking on and the default sampling settings.
+- We do not submit the untouched model. The local eval of Qwen3.5-9B on eval150 is the bar; the staff-reported leaderboard baseline is ~20%.
 - We get 4 attempts per hour, one processing at a time, and edits count too. Queue checkpoints in order of local eval score.
 - Once the best checkpoint is clear, try sampling settings: temperature (0.6 vs 0.8), max output tokens, thinking budget.
 - Log each submission's checkpoint path, settings and score.
@@ -158,7 +158,7 @@ The untouched Qwen3.5-9B is submitted first and is the score every run must beat
 The pipeline takes roughly 12–16 hours of wall time. The times are estimates, so track actual progress here.
 
 - [x] Confirm with staff that starting from Qwen3.5-9B is allowed (done)
-- [ ] Submit untouched Qwen3.5-9B as the baseline (\~10 min)
+- [x] ~~Submit untouched Qwen3.5-9B as the baseline~~ Dropped: we only submit checkpoints we trained
 - [x] Harness tool schema, chat template, turn limit, thinking setting: not needed, we hand over the model in the submission and the harness drives it. Our harness copy uses sensible defaults.
 - [ ] Build the C++ sandbox and harness copy on Modal (\~1–2 hrs)
 - [ ] Download `codeforces` (`verifiable`) and the model weights to a Modal Volume (\~30 min)

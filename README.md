@@ -93,7 +93,7 @@ Each stage's flags, outputs and failure behaviour are in the script's docstring 
 
 ## Evaluate and submit
 
-1. The untouched Qwen3.5-9B is submitted first (thinking on, default sampling); its score is the bar. Staff-reported baseline is ~20%.
+1. We do not submit the untouched Qwen3.5-9B. Its local eval on eval150 is the bar; the staff-reported leaderboard baseline is ~20%.
 2. Each checkpoint: local eval on eval150, then `scripts.analyze` against the baseline. Targets: pass above baseline, malformed ~0%, truncation < 5%, turns falling round over round. Drop a run that is not above baseline.
 3. Submissions: 4 per hour, one processing at a time, edits count. Queue by local eval score; log checkpoint path, settings and score in `submissions.md` (`analyze` prints the "pass / malformed / trunc / turns" cell).
 4. Once the best checkpoint is clear, sweep sampling settings (temperature 0.6 vs 0.8, max output tokens, thinking budget) with the remaining slots.
