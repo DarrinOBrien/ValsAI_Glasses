@@ -10,7 +10,53 @@ Keep an attempt only if
 Then per problem keep the shortest by (turns, output_tokens): one, or two for rating >= 2200.
 Also writes pass-rate stats per problem (for rebalancing the round-2 pool) to <out>.stats.json.
 """
-import argparse, collections, json
+import argparse, collections, json, re
+
+_ALL_PASS = re.compile(r"(\d+)/(\d+) sample tests passed")
+
+
+def _submit_code(m: dict):
+    for c in m.get("tool_calls") or []:
+        f = c.get("function") or {}
+        if f.get("name") == "submit":
+            try:
+                a = f.get("arguments")
+                return (json.loads(a) if isinstance(a, str) else a).get("code")
+            except Exception:
+                return None
+    return None
+
+
+def _samples_all_pass(tool_msg: dict) -> bool:
+    m = _ALL_PASS.search(str(tool_msg.get("content") or ""))
+    return bool(m) and m.group(1) == m.group(2) and int(m.group(2)) > 0
+
+
+def synth_exit(t: dict) -> dict | None:
+    """Solved attempts that never wrote EXIT (the model keeps resubmitting passing code until the turn cap):
+    cut right after the FIRST submission whose code equals the final graded code and passes all samples, then append
+    an `EXIT` turn. The cut keeps exactly the code that passed the full tests, so the label stays correct, and it
+    teaches the stop-after-passing habit (fewer turns win ties). Returns a new row, or None if it can't be done."""
+    if t.get("error") or not (t.get("score") or {}).get("solved") or t.get("malformed") or t.get("truncated"):
+        return None
+    msgs = t.get("messages") or []
+    subs = [(i, _submit_code(m)) for i, m in enumerate(msgs) if m["role"] == "assistant" and _submit_code(m)]
+    if not subs:
+        return None
+    final_code = subs[-1][1]
+    for i, code in subs:
+        if code == final_code and i + 1 < len(msgs) and msgs[i + 1]["role"] == "tool" and _samples_all_pass(msgs[i + 1]):
+            kept = msgs[: i + 2]
+            frac = max(1, sum(len(str(m.get("content") or "")) + len(str(m.get("reasoning_content") or "")) for m in kept)) / \
+                max(1, sum(len(str(m.get("content") or "")) + len(str(m.get("reasoning_content") or "")) for m in msgs))
+            new = dict(t)
+            new["messages"] = kept + [{"role": "assistant", "content": "EXIT", "reasoning_content": ""}]
+            new["turns"] = sum(m["role"] == "assistant" for m in new["messages"])
+            new["output_tokens"] = int((t.get("output_tokens") or 0) * frac)
+            new["ended_by"], new["regressed"], new["synth_exit"] = "exit", False, True
+            new["submissions"] = []
+            return new
+    return None
 
 
 def ok(t: dict) -> bool:
@@ -36,6 +82,17 @@ def ok(t: dict) -> bool:
 
 def main(a):
     rows = [json.loads(l) for f in a.files for l in open(f)]
+    n_synth = 0
+    if a.synth_exit:
+        out = []
+        for r in rows:
+            if str(r.get("ended_by", "")).lower() != "exit":
+                new = synth_exit(r)
+                if new is not None:
+                    n_synth += 1
+                    r = new
+            out.append(r)
+        rows = out
     by = collections.defaultdict(list)
     for r in rows:
         by[r["problem_id"]].append(r)
@@ -53,6 +110,7 @@ def main(a):
     json.dump(stats, open(a.out + ".stats.json", "w"))
     n = len(by)
     sol = sum(s["passed"] > 0 for s in stats.values())
+    print(f"synthesized an EXIT for {n_synth} solved attempts that never exited" if a.synth_exit else "synth-exit off")
     print(f"{len(rows)} attempts over {n} problems; {sol} problems with a clean pass; kept {len(keep)} trajectories "
           f"(avg turns {sum(t['turns'] for t in keep)/max(1,len(keep)):.1f}, avg out tokens "
           f"{sum(t['output_tokens'] for t in keep)/max(1,len(keep)):.0f}) -> {a.out}")
@@ -64,4 +122,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("files", nargs="+")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--no-synth-exit", dest="synth_exit", action="store_false",
+                    help="do not rescue solved attempts that never wrote EXIT (default: cut after first passing submission + EXIT)")
     main(ap.parse_args())
