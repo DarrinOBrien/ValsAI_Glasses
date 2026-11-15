@@ -147,7 +147,7 @@ def pick_generated(gen, rng):
 
 
 def run_checker(src, tests):
-    """Sanity check: the checker must accept the jury answer as the contestant output."""
+    """Sanity check: the checker must accept the jury answer. Returns its (max) score, or None if rejected."""
     t = tests[0]
     with tempfile.TemporaryDirectory() as d:
         for n, s in (("checker.py", src), ("input.txt", t["input"]), ("correct.txt", t["output"]), ("out.txt", t["output"])):
@@ -155,9 +155,10 @@ def run_checker(src, tests):
         try:
             p = subprocess.run([sys.executable, f"{d}/checker.py", f"{d}/input.txt", f"{d}/correct.txt", f"{d}/out.txt"],
                                capture_output=True, text=True, timeout=10, cwd=d)
-            return p.returncode == 0 and float(p.stdout.strip().split()[-1]) > 0
+            score = float(p.stdout.strip().split()[-1])
+            return score if p.returncode == 0 and score > 0 else None
         except Exception:
-            return False
+            return None
 
 
 def materialize(cands, gen_paths, rng, stats):
@@ -181,8 +182,11 @@ def materialize(cands, gen_paths, rng, stats):
             tests = off + gen
             if len(tests) < 5:
                 stats["lt5_after_fetch"] = stats.get("lt5_after_fetch", 0) + 1; continue
-            if r.get("generated_checker") and not run_checker(r["generated_checker"], tests):
-                stats["checker_failed"] = stats.get("checker_failed", 0) + 1; continue
+            r["_cmax"] = None
+            if r.get("generated_checker"):
+                r["_cmax"] = run_checker(r["generated_checker"], tests)
+                if r["_cmax"] is None:
+                    stats["checker_failed"] = stats.get("checker_failed", 0) + 1; continue
             r["_tests"], r["_n_off"], r["_n_gen"] = tests, len(off), len(gen)
             good.append(r)
     return good
@@ -198,6 +202,7 @@ def to_record(r):
         "sample_tests": [{"input": nl(e["input"]), "output": nl(e["output"])} for e in r["examples"]],
         "full_tests": {"path": path, "n": len(r["_tests"]), "n_official": r["_n_off"], "n_generated": r["_n_gen"]},
         "checker_lang": "python" if r.get("generated_checker") else None,
+        "checker_max_score": r.get("_cmax"),  # score printed on the jury answer (1 or 100); require score >= this
         "checker": r.get("generated_checker"),  # python checker.py input correct_output contestant_output -> score; None = exact match (token/whitespace tolerant)
         "year": r.get("contest_start_year"), "contest_id": r["contest_id"],
     }
