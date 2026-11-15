@@ -12,7 +12,9 @@ Staff-reported baseline of the untouched Qwen3.5-9B: ~20%. We do NOT submit the 
 | 1 | 2026-11-15 ~02:00 | `tinker://3f4f016f-8fef-5c48-a355-55a23c736581:train:0/sampler_weights/r1c-ep0` | r1c (cut at first passing submit, no synthetic EXIT) | leaderboard defaults (none set) | direct Tinker 12 (12k tok, 15 turns): 5/12, 16/102 turns truncated | **19.51** | ~ base; format fixed, no solving gain |
 | 2 | 2026-11-15 02:27 | r1c (same path) | r1c settings sweep | temperature 0.6, rest default | direct 12 at 24k/t0.6: 4/12 (local said worse) | **29.86** | leaderboard "Glasses #4"; team best; local n=12 check was misleading |
 | 3 | 2026-11-15 03:31 | r1c (same path) | r1c settings sweep | temperature 0.6, max output tokens 32768, thinking on, rest default | - | **19.19** | leaderboard "Glasses #5"; 32k tokens did not help (or #4 was lucky) |
-| 4 | 2026-11-15 04:54 | r1c (same path) | repeat of #4 (noise check) | temperature 0.6, rest default | - | pending | leaderboard "Glasses #6" |
+| 4 | 2026-11-15 04:54 | r1c (same path) | repeat of #4 (noise check) | temperature 0.6, rest default | - | **22.60** | leaderboard "Glasses #6"; same settings as #4 (29.86) -> leaderboard noise is several points |
+| 5 | 2026-11-15 07:23 | `tinker://47532075-7d8a-5a87-bfee-159cccb6faa1:train:0/sampler_weights/r2-ep0` | r2 (r1c samples on 302 new problems + r1c data, 1124 examples, from base) | temperature 0.6, rest default | direct Tinker 12 (24k, t0.8, 15 turns): 6/12 (r1c 6/12), malformed 15.7%/turn, trunc 11.2%, 8 exits (2 unsolved), 89 turns (r1c 115) | pending | leaderboard "Glasses #7" |
+| - |  | `Glasses #2` (0.00, 12:56 AM) | submitted by the earlier lead; checkpoint not recorded here | - | - | 0.00 | r1 or v1 (both broken) |
 
 Form fields (hackathon.vals.ai/submit, "Advanced settings"; empty = default): Thinking On/Off (default On), Temperature
 (Tinker default), Top p (Tinker default), Max output tokens (default 16384, step 256), Max turns (default 100, max 100).
