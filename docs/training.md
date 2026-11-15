@@ -24,5 +24,8 @@ Pipeline per round: `modal_sampler.py` (vLLM) -> `scripts/sample.py` -> `scripts
 - Billing of masked tokens: Tinker exposes no usage API, so this could not be measured from code. Treat all tokens in the sequence (prompt plus masked) as billed; the cost line printed at start does this.
 
 ## Export (vLLM)
-`python -m scripts.export_lora --state <tinker://.../weights/NAME> --name r1 [--merge]`. Sampler paths cannot be downloaded; use the state path. Uses tinker_cookbook.weights (PEFT adapter or merged bf16). Upload with `modal volume put qwen-weights exports/r1/adapter /adapters/r1`.
-Cookbook docs state Qwen3.5-9B is supported for adapter and merge, verified on vLLM 0.18 for Qwen3.5-4B (split in_proj q/k/v). See the findings in the report for our own test on 9B.
+`APP_NAME=<app> python -m scripts.export_lora --state <tinker://.../weights/NAME> --name r1 --merge` (state path, not sampler path; sampler checkpoints cannot be downloaded). Runs entirely on Modal (`modal_sampler.build`): downloads the checkpoint, builds in place next to the base weights. A laptop route was tried and is slow (380 MB upload and an 18 GB base-model download).
+- PEFT adapter route DOES NOT WORK on Qwen3.5-9B with current vLLM: startup fails with "expected target modules {in_proj_qkv, q_proj, ...} but received ...linear_attn.in_proj_q/k/v" (Tinker trains split q/k/v; the cookbook README claimed it worked for 4B). Use merged weights.
+- Merged route verified: `MERGED_MODEL=/vol/merged/smoke` serves under the same flags and returns proper tool_calls (12/12).
+- Deploy-time env (MERGED_MODEL, ADAPTERS, MAX_LEN) is baked into the image env; set `APP_NAME=...` to deploy an experiment without touching the main `qwen-sampler`.
+- Unclosed-think check: on a trivial prompt the reasoning parser plus qwen3_coder tool parser returned structured tool_calls for 12/12 turns. Re-check the malformed rate on real episodes.

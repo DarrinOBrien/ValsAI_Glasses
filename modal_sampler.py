@@ -13,10 +13,11 @@ Auth: Bearer VLLM_KEY.
 import hashlib, os
 import modal
 
-app = modal.App("qwen-sampler")
+APP_NAME = os.environ.get("APP_NAME", "qwen-sampler")  # use another name for experiments so the main deployment is untouched
+app = modal.App(APP_NAME)
 HF_MODEL = "Qwen/Qwen3.5-9B"
 VOL_MODEL = "/vol/qwen3.5-9b"
-MODEL = os.environ.get("MERGED_MODEL", VOL_MODEL)
+MODEL = os.environ.get("MERGED_MODEL") or VOL_MODEL
 N_REPLICAS = int(os.environ.get("N_REPLICAS", "3"))
 MAX_LEN = int(os.environ.get("MAX_LEN", "40960"))
 ADAPTERS = os.environ.get("ADAPTERS", "")  # "name=/vol/adapters/x,..."
@@ -28,7 +29,8 @@ image = (
     modal.Image.from_registry("nvidia/cuda:12.8.0-devel-ubuntu22.04", add_python="3.12")
     .entrypoint([])
     .uv_pip_install("vllm", "huggingface-hub", "hf_transfer", "httpx")
-    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
+    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1", "ADAPTERS": ADAPTERS, "MERGED_MODEL": os.environ.get("MERGED_MODEL", ""),
+          "MAX_LEN": str(MAX_LEN)})  # deploy-time settings must be baked in; the container does not see local env
 )
 
 
@@ -102,13 +104,17 @@ export_image = (modal.Image.debian_slim(python_version="3.12")
                 .pip_install("tinker-cookbook", "transformers", "torch", "safetensors", "huggingface_hub"))
 
 
-@app.function(image=export_image, volumes={"/vol": vol}, cpu=8, memory=65536, timeout=3600)
-def build(name: str, merge: bool = False):
-    """Raw Tinker adapter at /vol/raw/<name> -> /vol/adapters/<name> (PEFT) or /vol/merged/<name> (merged bf16).
-    Runs next to the base weights on the volume; building on a laptop re-downloads the 18 GB base model."""
+@app.function(image=export_image, volumes={"/vol": vol}, cpu=8, memory=65536, timeout=3600,
+              secrets=[modal.Secret.from_dict({"TINKER_API_KEY": os.environ.get("TINKER_API_KEY", "")})])
+def build(name: str, state: str, merge: bool = False):
+    """Tinker state checkpoint -> /vol/adapters/<name> (PEFT) or /vol/merged/<name> (merged bf16).
+    Everything runs in Modal (fast links, base weights local); from a laptop the 380 MB upload and the
+    18 GB base download both take tens of minutes."""
     import glob, shutil
     from tinker_cookbook import weights
     vol.reload()
+    shutil.rmtree(f"/vol/raw/{name}", ignore_errors=True)
+    weights.download(tinker_path=state, output_dir=f"/vol/raw/{name}")
     out = f"/vol/{'merged' if merge else 'adapters'}/{name}"
     shutil.rmtree(out, ignore_errors=True)
     kw = dict(base_model=VOL_MODEL, adapter_path=f"/vol/raw/{name}", output_path=out)
