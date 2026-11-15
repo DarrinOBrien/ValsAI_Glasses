@@ -5,7 +5,12 @@ INTERFACE (stable; other tracks depend on it)
 Problem (dict):
     {id, statement, rating, time_limit (s), memory_limit (MB),
      sample_tests: [{input, output}], full_tests: [{input, output}],
-     checker: None | str (testlib C++ source; run as `checker in out ans`, exit 0 = AC)}
+     checker: None (token-wise exact match) | str source, with checker_lang "python" (open-r1 score
+              checker: `python checker.py input correct contestant`, accepted iff exit 0 and score > 0)
+              or "cpp" (testlib: `checker in contestant ans`, exit 0 = AC); checker_lang absent ->
+              guessed from the source
+     full_tests may instead be {path, n, ...} (or a path): JSON {"tests":[...]} on volume cpp-data
+              (/vol/pool/tests/<id>.json); resolved inside the judge (set VOL_ROOT to remap /vol/ locally)}
     optional: title.
 
     traj = await run_episode(problem, client, max_turns=30, max_tokens=16000, temperature=0.8,
@@ -15,10 +20,10 @@ Problem (dict):
             max_tokens=, temperature=, [top_p=], [extra_body=])` (openai.AsyncOpenAI pointed at vLLM).
             Thinking is read from `message.reasoning_content` / `message.reasoning` if present, else
             from a `<think>...</think>` prefix in content.
-    judge_fn(code, tests, time_limit, mem_limit, checker) -> verdict dict (async or sync).
+    judge_fn(code, tests, time_limit, mem_limit, checker, checker_lang) -> verdict dict (async or sync).
             `local_judge` runs cpp.judge locally; `modal_judge()` calls Modal CPU containers
             (modal_app.py::judge_remote). Verdict: {compiled, compile_error, passed, total,
-            verdicts[AC|WA|TLE|RE], max_time}. Same signature as cpp.judge.judge's first 5 args.
+            verdicts[AC|WA|TLE|RE|JE(judge error)], max_time}.
 
 Trajectory (dataclass, .to_dict() is JSON-safe):
     problem_id, tools, messages : full chat (system, user, assistant{content, reasoning_content,
@@ -94,8 +99,8 @@ class Trajectory:
 
 
 # ---------------------------------------------------------------- judges
-async def local_judge(code, tests, time_limit, mem_limit, checker=None) -> dict:
-    return await asyncio.to_thread(_judge.judge, code, tests, time_limit, mem_limit, checker, True)
+async def local_judge(code, tests, time_limit, mem_limit, checker=None, checker_lang=None) -> dict:
+    return await asyncio.to_thread(_judge.judge, code, tests, time_limit, mem_limit, checker, True, checker_lang)
 
 
 def modal_judge(app_name: str = "tinker-cpp", fn_name: str = "judge_remote"):
@@ -103,8 +108,9 @@ def modal_judge(app_name: str = "tinker-cpp", fn_name: str = "judge_remote"):
     import modal
     fn = modal.Function.from_name(app_name, fn_name)
 
-    async def j(code, tests, time_limit, mem_limit, checker=None):
-        return await fn.remote.aio(code, tests, time_limit, mem_limit, checker)
+    async def j(code, tests, time_limit, mem_limit, checker=None, checker_lang=None):
+        # tests may be an inline list or {path,...}; a dict is resolved inside the container from the volume
+        return await fn.remote.aio(code, tests, time_limit, mem_limit, checker, checker_lang)
     return j
 
 
@@ -154,6 +160,7 @@ async def run_episode(problem: dict, client, max_turns: int | None = None, max_t
     cfg = config
     max_turns = cfg.max_turns if max_turns is None else max_turns
     tl, ml, checker = problem["time_limit"], problem["memory_limit"], problem.get("checker")
+    clang = problem.get("checker_lang")
     tr = Trajectory(problem_id=problem["id"], tools=cfg.tools)
     msgs: list[dict] = [{"role": "system", "content": cfg.system_prompt},
                         {"role": "user", "content": cfg.task_prompt(problem)}]
@@ -199,7 +206,7 @@ async def run_episode(problem: dict, client, max_turns: int | None = None, max_t
                 elif len(tr.submissions) >= cfg.max_submissions:
                     out = "Submission limit reached."
                 else:
-                    j = await _maybe_await(judge_fn(code, problem["sample_tests"], tl, ml, checker))
+                    j = await _maybe_await(judge_fn(code, problem["sample_tests"], tl, ml, checker, clang))
                     n = len(tr.submissions) + 1
                     sp = bool(j["compiled"]) and j["passed"] == j["total"]
                     tr.submissions.append({"n": n, "compiled": j["compiled"], "sample_passed": j["passed"],
@@ -239,10 +246,10 @@ async def run_episode(problem: dict, client, max_turns: int | None = None, max_t
             break
     # full-test verdict of the last compiling submission
     if tr.final_code:
-        j = await _maybe_await(judge_fn(tr.final_code, problem["full_tests"], tl, ml, checker))
+        j = await _maybe_await(judge_fn(tr.final_code, problem["full_tests"], tl, ml, checker, clang))
         tr.final = {"solved": j["passed"] == j["total"] and j["total"] > 0, "compiled": True,
                     "passed": j["passed"], "total": j["total"], "verdicts": j["verdicts"],
                     "max_time": j["max_time"]}
     else:
-        tr.final = {"solved": False, "compiled": False, "passed": 0, "total": len(problem["full_tests"])}
+        tr.final = {"solved": False, "compiled": False, "passed": 0, "total": _judge.n_tests(problem["full_tests"])}
     return tr

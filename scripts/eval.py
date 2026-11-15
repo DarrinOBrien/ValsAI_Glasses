@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse, asyncio, json, os, statistics as st
 
 from cpp import harness
+from cpp.judge import n_tests as judge_n_tests
 
 
 def summarize(trajs: list[harness.Trajectory], problems: list[dict] | None = None) -> dict:
@@ -53,7 +54,7 @@ async def evaluate(problems, client, model, k=1, concurrency=16, judge_fn=harnes
             except Exception as e:  # infrastructure error: report, count as a failed episode
                 log(f"{p['id']:>10} ERROR {type(e).__name__}: {e}")
                 t = harness.Trajectory(problem_id=p["id"], ended_by="error")
-                t.final = {"solved": False, "compiled": False, "passed": 0, "total": len(p["full_tests"])}
+                t.final = {"solved": False, "compiled": False, "passed": 0, "total": judge_n_tests(p["full_tests"])}
                 return t
             log(f"{p['id']:>10} r={p.get('rating')} solved={t.solved} turns={t.turns} subs={len(t.submissions)} "
                 f"tok={t.output_tokens} malformed={t.malformed} trunc={t.truncated} end={t.ended_by}")

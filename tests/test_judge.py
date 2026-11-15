@@ -101,6 +101,46 @@ def test_exit_codes():
                        t, 2.0, 256)["verdicts"] == ["AC"]
 
 
+PYCHK = """import sys
+a = int(open(sys.argv[1]).read().split()[0]); x = open(sys.argv[3]).read().split()
+print(100 if x and int(x[0]) in (a * 2, a * 2 + 1) else 0)
+"""
+DOUBLE = '#include <iostream>\nint main(){long long a; std::cin>>a; std::cout<<a*2+1<<"\\n";}'
+
+
+def test_python_checker():
+    t = [{"input": "5\n", "output": "10\n"}]   # jury answer 10; checker also accepts 11
+    assert judge.judge(DOUBLE, t, 2.0, 256, PYCHK, True, "python")["verdicts"] == ["AC"]
+    assert judge.judge(DOUBLE, t, 2.0, 256, PYCHK)["verdicts"] == ["AC"]  # lang guessed
+    assert judge.judge(SUM, t, 2.0, 256, PYCHK, True, "python")["verdicts"] == ["WA"]  # prints 5
+
+
+def test_python_checker_crash_is_wa_but_broken_checker_is_judge_error():
+    t = [{"input": "5\n", "output": "10\n"}]
+    garbage = '#include <cstdio>\nint main(){ puts("abc"); }'
+    assert judge.judge(garbage, t, 2.0, 256, PYCHK, True, "python")["verdicts"] == ["WA"]  # int('abc') crash
+    broken = "raise SystemExit(5)"
+    assert judge.judge(SUM, t, 2.0, 256, broken, True, "python")["verdicts"] == ["JE"]
+    hang = "import time\ntime.sleep(60)"
+    old = judge.PY_CHECKER_TIMEOUT
+    judge.PY_CHECKER_TIMEOUT = 1
+    try:
+        assert judge.judge(SUM, t, 2.0, 256, hang, True, "python")["verdicts"] == ["JE"]
+    finally:
+        judge.PY_CHECKER_TIMEOUT = old
+
+
+def test_full_tests_from_path(tmp_path, monkeypatch):
+    import json
+    (tmp_path / "pool" / "tests").mkdir(parents=True)
+    (tmp_path / "pool" / "tests" / "x.json").write_text(json.dumps({"tests": TESTS}))
+    monkeypatch.setenv("VOL_ROOT", str(tmp_path))
+    ft = {"path": "/vol/pool/tests/x.json", "n": 2}
+    assert judge.n_tests(ft) == 2
+    assert judge.judge(SUM, ft, 2.0, 256)["verdicts"] == ["AC", "AC"]
+    assert judge.judge(SUM, ft["path"], 2.0, 256)["passed"] == 2
+
+
 def test_run_code():
     r = judge.run_code(SUM, "2 3\n", 2.0, 256)
     assert r["compiled"] and r["status"] == "OK" and r["stdout"].strip() == "5"

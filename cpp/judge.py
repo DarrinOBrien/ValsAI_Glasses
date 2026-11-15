@@ -1,5 +1,5 @@
 """Compile and run C++20 under time/memory limits. Works on macOS (g++-16) and Linux (g++)."""
-import os, resource, shutil, subprocess, sys, tempfile, time
+import json, os, resource, shutil, subprocess, sys, tempfile, time
 
 CXX = os.environ.get("CXX") or shutil.which("g++-16") or shutil.which("g++-14") or "g++"
 FLAGS = ["-std=c++20", "-O2", "-pipe"]
@@ -137,10 +137,76 @@ def run_checker(chk_exe: str, workdir: str, inp: str, got: str, want: str) -> bo
     return r.returncode == 0
 
 
-def judge(code: str, tests: list[dict], tl: float = 2.0, ml_mb: float = 1024,
-          checker: str | None = None, stop_on_fail: bool = True) -> dict:
-    """tests: [{'input':..., 'output':...}]; checker: None (token diff) or testlib C++ source.
-    Returns {compiled, compile_error, passed, total, verdicts[AC|WA|TLE|RE], max_time}."""
+def run_py_checker(chk_path: str, workdir: str, inp: str, got: str, want: str) -> str:
+    """open-r1 generated_checker: `python checker.py input correct_output contestant_output` prints a score.
+    Returns 'AC' (exit 0 and last stdout token is a number > 0), 'WA', or 'JE' (judge error: the checker
+    timed out, or it crashes even when the contestant output is the jury answer)."""
+    def once(contestant: str) -> str | None:
+        paths = []
+        for name, data in (("in", inp), ("ans", want), ("out", contestant)):
+            p = os.path.join(workdir, f"p.{name}")
+            with open(p, "w") as f:
+                f.write(data)
+            paths.append(p)
+        try:
+            r = subprocess.run([sys.executable, chk_path, *paths], capture_output=True, text=True,
+                               timeout=PY_CHECKER_TIMEOUT, cwd=workdir)
+            if r.returncode != 0:
+                return "crash"
+            return "AC" if float(r.stdout.strip().split()[-1]) > 0 else "WA"
+        except subprocess.TimeoutExpired:
+            return "timeout"
+        except (ValueError, IndexError):  # no numeric score printed
+            return "crash"
+    v = once(got)
+    if v in ("AC", "WA"):
+        return v
+    if v == "timeout":
+        return "JE"
+    # crashed on the contestant output: WA if the checker is healthy on the jury answer, else judge error
+    return "WA" if once(want) in ("AC", "WA") else "JE"
+
+
+PY_CHECKER_TIMEOUT = 30
+_TEST_CACHE: dict[str, list] = {}
+
+
+def resolve_tests(tests) -> list[dict]:
+    """tests may be an inline list, a dict {path,...} or a path to a JSON file ({"tests":[...]} or a list).
+    Pool paths look like /vol/pool/tests/<id>.json (Modal volume cpp-data); locally set VOL_ROOT to remap /vol/."""
+    if isinstance(tests, list):
+        return tests
+    path = tests["path"] if isinstance(tests, dict) else tests
+    if path in _TEST_CACHE:
+        return _TEST_CACHE[path]
+    cands = [path]
+    if os.environ.get("VOL_ROOT") and path.startswith("/vol/"):
+        cands.insert(0, os.environ["VOL_ROOT"].rstrip("/") + "/" + path[5:])
+    for c in cands:
+        if os.path.exists(c):
+            data = json.load(open(c))
+            data = data["tests"] if isinstance(data, dict) else data
+            if len(_TEST_CACHE) > 64:
+                _TEST_CACHE.clear()
+            _TEST_CACHE[path] = data
+            return data
+    raise FileNotFoundError(f"tests file not found: {cands}")
+
+
+def n_tests(tests) -> int:
+    if isinstance(tests, dict) and "n" in tests:
+        return tests["n"]
+    return len(resolve_tests(tests))
+
+
+def judge(code: str, tests, tl: float = 2.0, ml_mb: float = 1024,
+          checker: str | None = None, stop_on_fail: bool = True, checker_lang: str | None = None) -> dict:
+    """tests: [{'input','output'}] or {path,...}/path (see resolve_tests). checker: None (token diff) or source,
+    with checker_lang 'python' (open-r1 score checker) or 'cpp' (testlib); if None it is guessed ('#include' -> cpp).
+    Returns {compiled, compile_error, passed, total, verdicts[AC|WA|TLE|RE|JE], max_time}."""
+    tests = resolve_tests(tests)
+    if checker and not checker_lang:
+        checker_lang = "cpp" if "#include" in checker else "python"
     d = tempfile.mkdtemp(prefix="judge_")
     try:
         ok, err, exe = compile_cpp(code, d)
@@ -148,10 +214,14 @@ def judge(code: str, tests: list[dict], tl: float = 2.0, ml_mb: float = 1024,
             return {"compiled": False, "compile_error": err, "passed": 0, "total": len(tests),
                     "verdicts": [], "max_time": 0.0}
         chk_exe = None
-        if checker:
+        if checker and checker_lang == "cpp":
             cok, cerr, chk_exe = compile_checker(checker, d)
             if not cok:
                 raise RuntimeError(f"checker failed to compile: {cerr}")
+        elif checker:
+            chk_py = os.path.join(d, "checker.py")
+            with open(chk_py, "w") as f:
+                f.write(checker)
         verdicts, max_t = [], 0.0
         for t in tests:
             r = run_exe(exe, t["input"], tl, ml_mb)
@@ -159,6 +229,8 @@ def judge(code: str, tests: list[dict], tl: float = 2.0, ml_mb: float = 1024,
                 v = r["status"]
             elif chk_exe:
                 v = "AC" if run_checker(chk_exe, d, t["input"], r["stdout"], t["output"]) else "WA"
+            elif checker:
+                v = run_py_checker(chk_py, d, t["input"], r["stdout"], t["output"])
             else:
                 v = "AC" if outputs_match(r["stdout"], t["output"]) else "WA"
             verdicts.append(v)

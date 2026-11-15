@@ -66,7 +66,7 @@ def format_run_result(r: dict) -> str:
 def format_submit_result(j: dict, n_used: int) -> str:
     if not j["compiled"]:
         return "Compilation error:\n" + _clip(j["compile_error"])
-    names = {"AC": "passed", "WA": "wrong answer", "TLE": "time limit exceeded", "RE": "runtime error"}
+    names = {"AC": "passed", "WA": "wrong answer", "TLE": "time limit exceeded", "RE": "runtime error", "JE": "judge error"}
     lines = [f"Sample {i}: {names[v]}" for i, v in enumerate(j["verdicts"], 1)]
     lines.append(f"{j['passed']}/{j['total']} sample tests passed. Submissions used: {n_used}/{MAX_SUBMISSIONS}.")
     return "\n".join(lines)
