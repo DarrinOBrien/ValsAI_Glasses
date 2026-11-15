@@ -43,8 +43,7 @@ problems (the open-r1 `test` split is eval-only).
 | `cpp-data` (`/vol`) | `cf_raw/` raw open-r1 parquet, `cf_tests/` generated tests for kept contests, `pool/{pool.jsonl,eval150.jsonl,stats.json,tests/<id>.json}` |
 | `qwen-weights` (`/vol`) | `qwen3.5-9b/` base weights, `adapters/<name>` and `merged/<name>` exports, `trajectories/<tag>.jsonl` sampling output |
 
-Check that the pool path your sampler reads (`/vol/pool.jsonl` by default in `sample.py`, on `qwen-weights`) is where `build_pool` wrote it
-(`cpp-data:/pool/pool.jsonl`); copy it or pass `--pool`. ALWAYS stop GPUs after a run: `uv run --env-file .env modal app stop qwen-sampler --yes`.
+`sample.py` reads the pool from `/cpp/pool/pool.jsonl` (the `cpp-data` volume) by default; pass `--pool` for anything else. ALWAYS stop GPUs after a run: `uv run --env-file .env modal app stop qwen-sampler --yes`.
 
 ## Commands per stage
 
@@ -102,7 +101,7 @@ Each stage's flags, outputs and failure behaviour are in the script's docstring 
 
 - **Prompt template parity.** Training prompts are built by the Tinker renderer, serving prompts by vLLM's HF template. `smoke_real` compares them token-for-token; tool specs must be the full `{"type":"function","function":...}` objects (fixed in `cpp/policy.py`).
 - **Tool calls inside an unclosed `<think>` block**: about 60% of baseline tool-call turns (26/43 in the smoke test) never write `</think>`; the Tinker renderer recovers the call, but the real harness's reasoning parser may not (-> malformed calls). Training rows are therefore normalized by `scripts.thinkfix normalize` (pre-call text moves into the reasoning field, so targets read `<think>..</think><tool_call>`), `round.py` runs it before training, and `analyze` reports an "unclosed think" column - it should fall to ~0 after round 1. `--max-empty-frac` drops trajectories that mostly skip thinking.
-- **Checkers**: `cpp/judge.py` expects testlib C++ source; make sure the pool's `checker` field is C++ (not a Python checker) or those problems are skipped/misjudged.
+- **Checkers**: open-r1 checkers are Python (`checker_lang: "python"`, run as `python checker.py in ans out`, accept = exit 0 and score >= `checker_max_score`); testlib C++ checkers are also supported. A checker timeout is a `JE` verdict, never a pass.
 - **Judge timing**: on Modal the judge is quiet (no false TLEs in 18k runs; see `docs/judge_noise.md`), so keep `cpu=2, max_inputs=2` and select with a 0.6 x limit time margin. Local macOS timing is noisy; use Modal for real runs.
 - **Cold start**: first vLLM start on a replica takes minutes (weights, compile, CUDA graphs); Modal answers `303` while it starts, so use `httpx`/`curl -L` and poll `/health`.
 - Cost guards: all `round.py` spending stages need `--yes`; sampler and teacher-style deployments bill by the hour until stopped.
